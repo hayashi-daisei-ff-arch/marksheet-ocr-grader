@@ -683,52 +683,78 @@ function showResultsForCurrentPage() {
 }
 
 function exportExcel() {
-    const data = APP_STATE.grader.getExcelData();
-    if (!data) {
+    const rawArgs = APP_STATE.grader.getRawData();
+    if (!rawArgs.results.length) {
         alert('エクスポートするデータがありません。');
         return;
     }
 
+    const { correctAnswers, results } = rawArgs;
+    const numQ = correctAnswers.length;
+
     const wb = XLSX.utils.book_new();
     const ws_data = [];
 
-    // 1. Headers
-    ws_data.push(data.headers);
+    // Row 1: Headers
+    const headers = ["Student ID"];
+    for (let i = 1; i <= numQ; i++) headers.push(`Q${i}`);
+    headers.push("Total Score");
+    ws_data.push(headers);
 
-    // 2. Points (Row 2)
-    ws_data.push(data.pointsRow);
+    // Row 2: Points (Default 0, user sets this)
+    const pointsRow = ["Points (Set values here)"];
+    for (let i = 0; i < numQ; i++) pointsRow.push(0);
+    pointsRow.push(null);
+    ws_data.push(pointsRow);
 
-    // Create Base Sheet
+    // Row 3: Correct Answers
+    const keyRow = ["Correct Answer"];
+    // correctAnswers array might contain "MULTIPLE" strings or nulls. 
+    keyRow.push(...correctAnswers.map(a => a === null ? "" : a));
+    keyRow.push(null);
+    ws_data.push(keyRow);
+
+    // Create Sheet
     const ws = XLSX.utils.aoa_to_sheet(ws_data);
 
-    // 3. Add Student Rows with Formulas
-    const numQ = data.headers.length - 2; // Exclude ID and Total
-    // Points Range: $B$2:$[LastCol]$2
-    // SheetJS uses 0-indexed columns. Q1 is Col 1 ('B'). Last Q is Col numQ.
-    const startColStr = XLSX.utils.encode_col(1); // 'B'
-    const endColStr = XLSX.utils.encode_col(numQ);
-    const pointsRange = `$${startColStr}$2:$${endColStr}$2`;
+    // Column Index Utility check
+    if (!XLSX.utils.encode_col) {
+        alert("SheetJS utility error.");
+        return;
+    }
 
-    data.dataRows.forEach((row, idx) => {
-        const rowNum = idx + 3; // Excel Row Number (1-based)
+    const startCol = XLSX.utils.encode_col(1); // 'B' (Index 1)
+    const endCol = XLSX.utils.encode_col(numQ); // Last Answer Col
 
-        // Note: row array contains [ID, 1, 0, ..., null/dummy]
-        // We write it to the sheet
-        XLSX.utils.sheet_add_aoa(ws, [row], { origin: -1 });
+    // Points Range: Row 2. Key Range: Row 3.
+    const pointsRange = `$${startCol}$2:$${endCol}$2`;
+    const keyRange = `$${startCol}$3:$${endCol}$3`;
 
-        // Overwrite the last cell (Total Score) with Formula
+    results.forEach((r, idx) => {
+        const rowNum = idx + 4; // Data starts at Row 4
+
+        const rowData = [r.studentId];
+        // Just the values (1, 2, ... or null)
+        r.details.forEach(d => {
+            // If null, empty string
+            rowData.push(d.student === null ? "" : d.student);
+        });
+
+        XLSX.utils.sheet_add_aoa(ws, [rowData], { origin: -1 });
+
+        // Total Score Formula
         // Total Score Column is index numQ + 1
         const totalCellAddr = XLSX.utils.encode_cell({ r: rowNum - 1, c: numQ + 1 });
+        const studentRange = `${startCol}${rowNum}:${endCol}${rowNum}`;
 
-        // Student Answers Range: B[Row]:[LastCol][Row]
-        const studentRange = `${startColStr}${rowNum}:${endColStr}${rowNum}`;
-        const formula = `SUMPRODUCT(${pointsRange},${studentRange})`;
+        // SUMPRODUCT((StudentRange=KeyRange)*PointsRange)
+        const formula = `SUMPRODUCT((${studentRange}=${keyRange})*${pointsRange})`;
 
         ws[totalCellAddr] = { t: 'n', f: formula };
     });
 
     XLSX.utils.book_append_sheet(wb, ws, "Grading Results");
-    XLSX.writeFile(wb, "grading_results.xlsx");
+    XLSX.writeFile(wb, "grading_results_v2.xlsx");
 }
 
 function updateConfigOutput() {
