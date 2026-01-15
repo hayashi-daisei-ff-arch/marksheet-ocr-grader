@@ -139,14 +139,25 @@
                                 <button id="resetAllBlocksBtn" class="btn secondary full-width">全ブロックをリセット</button>
                             </div>
                         </details>
+                        <div class="setting-group">
+                            <details>
+                                <summary>現在の設定値（デバッグ用）</summary>
+                                <div class="accordion-content">
+                                    <textarea id="configOutput" rows="5" readonly
+                                        style="width:100%; font-size:10px;"></textarea>
+                                    <button id="copyConfigBtn" class="btn small outline full-width">設定値をコピー</button>
+                                </div>
+                            </details>
+                        </div>
                     </div>
-                </div>
 
-                <div class="panel action-panel">
-                    <button id="analyzeFirstPageBtn" class="btn primary full-width" disabled>1枚目を解析（正答設定）</button>
-                    <button id="startGradingBtn" class="btn success full-width" style="display: none;">全ページ採点開始</button>
-                    <button id="exportCsvBtn" class="btn outline full-width" style="display: none;">CSVエクスポート</button>
-                </div>
+                    <div class="panel action-panel">
+                        <button id="analyzeFirstPageBtn" class="btn primary full-width" disabled>1枚目を解析（正答設定）</button>
+                        <button id="startGradingBtn" class="btn success full-width"
+                            style="display: none;">全ページ採点開始</button>
+                        <button id="exportExcelBtn" class="btn outline full-width"
+                            style="display: none;">Excelエクスポート</button>
+                    </div>
             </aside>
 
             <!-- Main Workspace -->
@@ -188,6 +199,9 @@
     </div>
 
     <!-- Scripts -->
+    <!-- SheetJS for Excel Export -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+
     <script src="js/pdf-handler.js"></script>
     <script src="js/ocr-engine.js"></script>
     <script src="js/grader.js"></script>
