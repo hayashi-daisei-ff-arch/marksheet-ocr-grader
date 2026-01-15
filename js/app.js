@@ -158,8 +158,23 @@ async function changePage(delta) {
         APP_STATE.currentPage = newPage;
         updateNav();
         await requestRender();
-        // If we already have results for this page, show them
-        showResultsForCurrentPage();
+
+        // Show overlay and results if available
+        if (APP_STATE.grader.results.some(r => r.page === APP_STATE.currentPage)) {
+            await visualizeCurrentPage();
+        } else if (APP_STATE.currentPage === 1 && APP_STATE.answerKey.length > 0) {
+            // Visualize Answer Key Page? 
+            // Usually we don't have stored results for Page 1 in 'grader.results'.
+            // But we can show the key in the panel.
+            showResultsForCurrentPage();
+        } else {
+            // Clear overlay if no results
+            const canvas = document.getElementById('overlayCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawOverlay(); // Draw boxes setup
+            document.getElementById('resultsPreview').style.display = 'none';
+        }
     }
 }
 
@@ -681,44 +696,51 @@ function drawGradingResultOverlay() {
     const qPerBlock = APP_STATE.config.questionsPerBlock;
 
     res.details.forEach((d, globalIdx) => {
-        if (d.student === null) return;
-
         const blockIdx = Math.floor(globalIdx / qPerBlock);
         if (blockIdx >= numBlocks) return;
 
         const inBlockIdx = globalIdx % qPerBlock;
+        const block = APP_STATE.config.answerBlocks[blockIdx];
+        if (!block) return;
 
-        // MULTIPLE
-        if (d.student === 'MULTIPLE') {
-            const block = APP_STATE.config.answerBlocks[blockIdx];
-            if (block) {
-                const cellH = block.h / qPerBlock;
-                const y = block.y + inBlockIdx * cellH;
-                ctx.fillStyle = 'rgba(255, 193, 7, 0.3)';
-                ctx.fillRect(block.x, y, block.w, cellH);
-            }
+        const cellW = block.w / 10;
+        const cellH = block.h / qPerBlock;
+        const y = block.y + inBlockIdx * cellH;
+
+        // Color Logic per User Request:
+        // Correct (Green), Incorrect (Red), No Answer/X (Yellow)
+        let color = 'rgba(239, 68, 68, 0.4)'; // Default Red (Incorrect)
+
+        if (d.student === null) {
+            color = 'rgba(255, 193, 7, 0.4)'; // Yellow (No Answer)
+        } else if (d.isCorrect) {
+            color = 'rgba(16, 185, 129, 0.4)'; // Green (Correct)
+        }
+
+        if (d.student === null) {
+            // Fill row for empty answer
+            ctx.fillStyle = color;
+            ctx.fillRect(block.x, y, block.w, cellH);
             return;
         }
 
-        // Number
-        let colIdx = -1;
+        // Determine columns to draw
+        let indicesToDraw = [];
         if (typeof d.student === 'number') {
-            if (d.student >= 1 && d.student <= 9) colIdx = d.student - 1;
-            else if (d.student === 0) colIdx = 9;
+            indicesToDraw.push(d.student === 0 ? 9 : d.student - 1);
+        } else if (typeof d.student === 'string') {
+            // "1,2" -> parse
+            d.student.split(',').forEach(v => {
+                const n = parseInt(v); // 0-9
+                if (!isNaN(n)) indicesToDraw.push(n === 0 ? 9 : n - 1);
+            });
         }
 
-        if (colIdx === -1) return;
-
-        const block = APP_STATE.config.answerBlocks[blockIdx];
-        if (block) {
-            const cellW = block.w / 10;
-            const cellH = block.h / qPerBlock;
+        ctx.fillStyle = color;
+        indicesToDraw.forEach(colIdx => {
             const x = block.x + colIdx * cellW;
-            const y = block.y + inBlockIdx * cellH;
-
-            ctx.fillStyle = 'rgba(16, 185, 129, 0.5)';
             ctx.fillRect(x + 2, y + 2, cellW - 4, cellH - 4);
-        }
+        });
     });
 }
 
@@ -739,8 +761,7 @@ function displayResultsWithAnswers(page, studentId, answers) {
 
         let text = '-';
         if (ans !== null) {
-            text = ans === 'MULTIPLE' ? 'M' : ans;
-            if (ans === 'MULTIPLE') div.classList.add('invalid');
+            text = ans;
         } else {
             div.classList.add('empty');
         }
@@ -755,29 +776,29 @@ function displayResultsWithAnswers(page, studentId, answers) {
 }
 
 function editAnswer(page, qIdx, currentVal) {
-    const newValStr = prompt(`修正後の値を入力してください (Q${qIdx + 1})\n(0-9: 回答, 空白: 未回答, M: 複数)`, currentVal === 'MULTIPLE' ? 'M' : (currentVal ?? ''));
+    const defaultVal = currentVal === null ? '' : currentVal;
+    const newValStr = prompt(`修正後の値を入力してください (Q${qIdx + 1})\n(0-9: 回答, '1,2': 複数, 空白: 未回答)`, defaultVal);
     if (newValStr === null) return; // Cancel
 
     let newVal = null;
-    const trimmed = newValStr.trim().toUpperCase();
+    const trimmed = newValStr.trim();
 
     if (trimmed === '') {
         newVal = null;
-    } else if (trimmed === 'M' || trimmed === 'MULTIPLE') {
-        newVal = 'MULTIPLE';
+    } else if (trimmed.includes(',')) {
+        newVal = trimmed;
     } else {
         const n = parseInt(trimmed);
         if (!isNaN(n) && n >= 0 && n <= 9) {
             newVal = n;
         } else {
-            alert('無効な値です。0-9, M, または空白を入力してください。');
-            return;
+            if (trimmed.length > 0) newVal = trimmed;
         }
     }
 
     // Update Logic
     const res = APP_STATE.grader.results.find(r => r.page === page);
-    if (!res) return; // Should not happen if displayed
+    if (!res) return;
 
     const currentAnswers = res.details.map(d => d.student);
     currentAnswers[qIdx] = newVal;
@@ -792,6 +813,14 @@ function editAnswer(page, qIdx, currentVal) {
     const canvas = document.getElementById('overlayCanvas');
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const imageData = APP_STATE.pdfHandler.getImageData();
+    if (imageData) {
+        const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
+        const idRes = APP_STATE.ocrEngine.detectMarks(binImage, APP_STATE.config.studentIdRegion, APP_STATE.config.studentIdGrid, APP_STATE.config.sensitivity);
+        drawDetectionResultsBlocks(idRes, []);
+    }
+
     drawGradingResultOverlay();
 }
 
