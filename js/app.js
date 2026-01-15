@@ -11,16 +11,16 @@ const APP_STATE = {
     config: {
         threshold: 211,
         sensitivity: 0.2,
-        studentIdRegion: { x: 50, y: 100, w: 200, h: 500 },
+        studentIdRegion: { x: 102.5, y: 230, w: 174, h: 272 },
         studentIdGrid: { rows: 10, cols: 7 },
 
         // 4 separate answer blocks
         questionsPerBlock: 25,
         answerBlocks: [
-            { x: 300, y: 100, w: 200, h: 500 }, // Block 1
-            { x: 550, y: 100, w: 200, h: 500 }, // Block 2
-            { x: 800, y: 100, w: 200, h: 500 }, // Block 3
-            { x: 1050, y: 100, w: 200, h: 500 }  // Block 4
+            { x: 348.5, y: 174, w: 184, h: 677 }, // Block 1
+            { x: 569.5, y: 176, w: 182, h: 675 }, // Block 2
+            { x: 790.5, y: 177, w: 182, h: 674 }, // Block 3
+            { x: 1011.5, y: 177, w: 180, h: 677 }  // Block 4
         ]
     },
 
@@ -574,10 +574,18 @@ async function startGradingFlow() {
 
     APP_STATE.grader.reset();
 
-    // Loop through all pages starting from 2
+    // Loop through all pages starting from 2 (assuming page 1 is key)
+    // Actually, usually Page 1 is also a student sheet if we keyed it separately, 
+    // but here the flow implies Page 1 was the Answer Key source.
+    // If the user wants to Grade Page 1 as well? 
+    // The current flow uses Page 1 ONLY as Key. So we start from 2.
+
+    // However, we want to visualize progress.
     for (let p = 2; p <= APP_STATE.totalPages; p++) {
-        // Render to canvas (hidden is fine, but we use the main one)
-        // Note: Render forces the canvas to update, which is slow but necessary for pixel data
+        // Update current page state so renderPage works as expected contextually
+        APP_STATE.currentPage = p;
+
+        // Render to canvas
         await APP_STATE.pdfHandler.renderPage(p);
 
         const imageData = APP_STATE.pdfHandler.getImageData();
@@ -590,6 +598,8 @@ async function startGradingFlow() {
         // Answers - process active blocks only
         const numBlocks = parseInt(document.getElementById('numBlocks').value) || 4;
         const studentAns = [];
+        const allDebugData = []; // Store debug data for visualization
+
         for (let i = 0; i < numBlocks; i++) {
             const block = APP_STATE.config.answerBlocks[i];
             const grid = { rows: APP_STATE.config.questionsPerBlock, cols: 10 };
@@ -598,23 +608,31 @@ async function startGradingFlow() {
             const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(blockRes.matrix);
 
             studentAns.push(...blockAnswers);
+            allDebugData.push(blockRes.debug);
         }
+
+        // Visualize!
+        drawDetectionResultsBlocks(idRes, allDebugData);
 
         // Grade
         APP_STATE.grader.gradeStudent(studentId, studentAns, p);
 
-        // Optional: Update progress UI
+        // Update progress UI
         document.getElementById('pageIndicator').textContent = `Processing ${p} / ${APP_STATE.totalPages}`;
+
+        // Short pause to allow browser to render the canvas update
+        await new Promise(resolve => setTimeout(resolve, 50));
     }
 
     document.getElementById('loader').style.display = 'none';
     document.getElementById('startGradingBtn').disabled = false;
-    document.getElementById('exportCsvBtn').style.display = 'inline-block';
+    document.getElementById('exportExcelBtn').style.display = 'inline-block';
 
-    alert('全ページの採点が完了しました。CSVエクスポートが可能です。');
+    alert('全ページの採点が完了しました。Excelエクスポートが可能です。');
 
-    // Go to first student page
+    // Go back to the first student page (Page 2)
     changePage(2 - APP_STATE.currentPage);
+    // Note: changePage adds offset. If current is N, to go to 2, offset is 2 - N.
 }
 
 function displayResults(page, studentId, markCount, scoreMsg) {
