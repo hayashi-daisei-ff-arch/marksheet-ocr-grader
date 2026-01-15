@@ -176,7 +176,9 @@ class OCREngine {
 
             if (markedIndices.length === 0) return null; // No answer
             if (markedIndices.length === 1) return markedIndices[0];
-            return "MULTIPLE"; // Multiple marks error
+
+            // Return all marked values separated by comma
+            return markedIndices.join(',');
         });
     }
 }
