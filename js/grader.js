@@ -57,7 +57,12 @@ class Grader {
             timestamp: new Date().toISOString()
         };
 
-        this.results.push(result);
+        const existingIdx = this.results.findIndex(r => r.page === pageNum);
+        if (existingIdx >= 0) {
+            this.results[existingIdx] = result;
+        } else {
+            this.results.push(result);
+        }
         return result;
     }
 
