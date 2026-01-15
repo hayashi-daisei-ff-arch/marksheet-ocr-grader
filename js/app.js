@@ -639,9 +639,41 @@ async function startGradingFlow() {
 
     alert('全ページの採点が完了しました。Excelエクスポートが可能です。');
 
-    // Go back to the first student page (Page 2)
-    changePage(2 - APP_STATE.currentPage);
-    // Note: changePage adds offset. If current is N, to go to 2, offset is 2 - N.
+    // Go back to the first student page (Page 2) and visualize
+    if (APP_STATE.totalPages >= 2) {
+        APP_STATE.currentPage = 2;
+        updateNav();
+        await requestRender(); // Wait for clean PDF render
+
+        // Re-analyze just for overlay
+        await visualizeCurrentPage();
+    }
+}
+
+async function visualizeCurrentPage() {
+    const imageData = APP_STATE.pdfHandler.getImageData();
+    if (!imageData) return;
+
+    const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
+
+    // Visualize ID
+    const idRes = APP_STATE.ocrEngine.detectMarks(binImage, APP_STATE.config.studentIdRegion, APP_STATE.config.studentIdGrid, APP_STATE.config.sensitivity);
+
+    // Visualize Answers
+    const numBlocks = parseInt(document.getElementById('numBlocks').value) || 4;
+    const allDebugData = [];
+
+    for (let i = 0; i < numBlocks; i++) {
+        const block = APP_STATE.config.answerBlocks[i];
+        const grid = { rows: APP_STATE.config.questionsPerBlock, cols: 10 };
+        const blockRes = APP_STATE.ocrEngine.detectMarks(binImage, block, grid, APP_STATE.config.sensitivity);
+        allDebugData.push(blockRes.debug);
+    }
+
+    drawDetectionResultsBlocks(idRes, allDebugData);
+
+    // Also show results in panel if available
+    showResultsForCurrentPage();
 }
 
 function displayResults(page, studentId, markCount, scoreMsg) {
