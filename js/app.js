@@ -654,35 +654,74 @@ async function visualizeCurrentPage() {
     const imageData = APP_STATE.pdfHandler.getImageData();
     if (!imageData) return;
 
+    // 1. Draw ID (fresh detection for ID area overlay)
     const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
-
-    // Visualize ID
     const idRes = APP_STATE.ocrEngine.detectMarks(binImage, APP_STATE.config.studentIdRegion, APP_STATE.config.studentIdGrid, APP_STATE.config.sensitivity);
 
-    // Visualize Answers
-    const numBlocks = parseInt(document.getElementById('numBlocks').value) || 4;
-    const allDebugData = [];
+    // Clear & ID
+    drawDetectionResultsBlocks(idRes, []);
 
-    for (let i = 0; i < numBlocks; i++) {
-        const block = APP_STATE.config.answerBlocks[i];
-        const grid = { rows: APP_STATE.config.questionsPerBlock, cols: 10 };
-        const blockRes = APP_STATE.ocrEngine.detectMarks(binImage, block, grid, APP_STATE.config.sensitivity);
-        allDebugData.push(blockRes.debug);
-    }
+    // 2. Draw Answers from Grading Results
+    drawGradingResultOverlay();
 
-    drawDetectionResultsBlocks(idRes, allDebugData);
-
-    // Also show results in panel if available
+    // 3. Show Panel
     showResultsForCurrentPage();
 }
 
-function displayResults(page, studentId, markCount, scoreMsg) {
-    document.getElementById('resultsPreview').style.display = 'block';
-    document.getElementById('previewPageNum').textContent = `Page ${page}`;
-    document.getElementById('resStudentId').textContent = studentId;
-    document.getElementById('resMarkCount').textContent = markCount;
-    document.getElementById('resScore').textContent = scoreMsg;
+function drawGradingResultOverlay() {
+    const res = APP_STATE.grader.results.find(r => r.page === APP_STATE.currentPage);
+    if (!res) return;
+
+    const canvas = document.getElementById('overlayCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Do not clear here, ID overlay is already drawn
+
+    const numBlocks = parseInt(document.getElementById('numBlocks').value) || 4;
+    const qPerBlock = APP_STATE.config.questionsPerBlock;
+
+    res.details.forEach((d, globalIdx) => {
+        if (d.student === null) return;
+
+        const blockIdx = Math.floor(globalIdx / qPerBlock);
+        if (blockIdx >= numBlocks) return;
+
+        const inBlockIdx = globalIdx % qPerBlock;
+
+        // MULTIPLE
+        if (d.student === 'MULTIPLE') {
+            const block = APP_STATE.config.answerBlocks[blockIdx];
+            if (block) {
+                const cellH = block.h / qPerBlock;
+                const y = block.y + inBlockIdx * cellH;
+                ctx.fillStyle = 'rgba(255, 193, 7, 0.3)';
+                ctx.fillRect(block.x, y, block.w, cellH);
+            }
+            return;
+        }
+
+        // Number
+        let colIdx = -1;
+        if (typeof d.student === 'number') {
+            if (d.student >= 1 && d.student <= 9) colIdx = d.student - 1;
+            else if (d.student === 0) colIdx = 9;
+        }
+
+        if (colIdx === -1) return;
+
+        const block = APP_STATE.config.answerBlocks[blockIdx];
+        if (block) {
+            const cellW = block.w / 10;
+            const cellH = block.h / qPerBlock;
+            const x = block.x + colIdx * cellW;
+            const y = block.y + inBlockIdx * cellH;
+
+            ctx.fillStyle = 'rgba(16, 185, 129, 0.5)';
+            ctx.fillRect(x + 2, y + 2, cellW - 4, cellH - 4);
+        }
+    });
 }
+
 
 function displayResultsWithAnswers(page, studentId, answers) {
     document.getElementById('resultsPreview').style.display = 'block';
@@ -697,14 +736,63 @@ function displayResultsWithAnswers(page, studentId, answers) {
     answers.forEach((ans, idx) => {
         const div = document.createElement('div');
         div.className = 'ans-item';
-        if (ans === null) {
-            div.classList.add('empty');
-            div.textContent = `${idx + 1}: -`;
+
+        let text = '-';
+        if (ans !== null) {
+            text = ans === 'MULTIPLE' ? 'M' : ans;
+            if (ans === 'MULTIPLE') div.classList.add('invalid');
         } else {
-            div.textContent = `${idx + 1}:${ans}`;
+            div.classList.add('empty');
         }
+
+        div.textContent = `${idx + 1}:${text}`;
+        div.title = "Click to edit";
+        div.style.cursor = "pointer";
+        div.onclick = () => editAnswer(page, idx, ans);
+
         grid.appendChild(div);
     });
+}
+
+function editAnswer(page, qIdx, currentVal) {
+    const newValStr = prompt(`修正後の値を入力してください (Q${qIdx + 1})\n(0-9: 回答, 空白: 未回答, M: 複数)`, currentVal === 'MULTIPLE' ? 'M' : (currentVal ?? ''));
+    if (newValStr === null) return; // Cancel
+
+    let newVal = null;
+    const trimmed = newValStr.trim().toUpperCase();
+
+    if (trimmed === '') {
+        newVal = null;
+    } else if (trimmed === 'M' || trimmed === 'MULTIPLE') {
+        newVal = 'MULTIPLE';
+    } else {
+        const n = parseInt(trimmed);
+        if (!isNaN(n) && n >= 0 && n <= 9) {
+            newVal = n;
+        } else {
+            alert('無効な値です。0-9, M, または空白を入力してください。');
+            return;
+        }
+    }
+
+    // Update Logic
+    const res = APP_STATE.grader.results.find(r => r.page === page);
+    if (!res) return; // Should not happen if displayed
+
+    const currentAnswers = res.details.map(d => d.student);
+    currentAnswers[qIdx] = newVal;
+
+    // Re-grade (overwrite)
+    APP_STATE.grader.gradeStudent(res.studentId, currentAnswers, page);
+
+    // Refresh UI
+    showResultsForCurrentPage();
+
+    // Refresh Overlay
+    const canvas = document.getElementById('overlayCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGradingResultOverlay();
 }
 
 
@@ -712,17 +800,12 @@ function showResultsForCurrentPage() {
     // Check if we have processed results
     const res = APP_STATE.grader.results.find(r => r.page === APP_STATE.currentPage);
     if (res) {
-        displayResults(res.page, res.studentId, res.details.length, `${res.score} / ${res.maxScore}`);
-
-        // Render grid visualization
-        const grid = document.getElementById('resAnswersGrid');
-        grid.innerHTML = '';
-        res.details.forEach(d => {
-            const div = document.createElement('div');
-            div.className = `ans-item ${d.isCorrect ? 'correct' : 'incorrect'}`;
-            div.textContent = `${d.question}:${d.student ?? 'X'}`;
-            grid.appendChild(div);
-        });
+        // Map details back to simple answer array for display
+        const answers = res.details.map(d => d.student);
+        displayResultsWithAnswers(res.page, res.studentId, answers);
+    } else if (APP_STATE.currentPage === 1 && APP_STATE.answerKey.length > 0) {
+        // Show Answer Key for Page 1
+        displayResultsWithAnswers(1, "正答キー", APP_STATE.answerKey);
     } else {
         document.getElementById('resultsPreview').style.display = 'none';
     }
