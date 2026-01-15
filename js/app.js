@@ -9,13 +9,10 @@ const APP_STATE = {
 
     // Config
     config: {
-        threshold: 128,
-        sensitivity: 0.3,
+        threshold: 211,
+        sensitivity: 0.2,
         studentIdRegion: { x: 50, y: 100, w: 200, h: 500 },
-        studentIdGrid: { rows: 10, cols: 7 }, // 0-9 (rows) x 7 digits (cols) - WAit, user said "7 digits vertical". 
-        // User said: "1. 0~9 marks (vertical) -> 7 digits". 
-        // This implies: 7 Columns. Each column has 0-9 vertically.
-        // So Grid: 10 rows (0-9) x 7 cols.
+        studentIdGrid: { rows: 10, cols: 7 },
 
         // 4 separate answer blocks
         questionsPerBlock: 25,
@@ -41,6 +38,12 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initUI() {
+    // Set initial UI values from config
+    document.getElementById('thresholdSlider').value = APP_STATE.config.threshold;
+    document.getElementById('thresholdValue').textContent = APP_STATE.config.threshold;
+    document.getElementById('sensitivitySlider').value = APP_STATE.config.sensitivity;
+    document.getElementById('sensitivityValue').textContent = Math.round(APP_STATE.config.sensitivity * 100) + '%';
+
     // File Upload
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
@@ -85,7 +88,10 @@ function initUI() {
 
     document.getElementById('analyzeFirstPageBtn').addEventListener('click', analyzeFirstPage);
     document.getElementById('startGradingBtn').addEventListener('click', startGradingFlow);
-    document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
+    document.getElementById('exportExcelBtn').addEventListener('click', exportExcel);
+
+    // Debug
+    document.getElementById('copyConfigBtn').addEventListener('click', copyConfigToClipboard);
 
     // Nav
     document.getElementById('prevPage').addEventListener('click', () => changePage(-1));
@@ -377,6 +383,11 @@ function drawOverlay() {
             ctx.fillText(`Block ${idx + 1}`, block.x + 5, block.y - 5);
         }
     }
+
+    // Update config output for debugging
+    if (typeof updateConfigOutput === 'function') {
+        updateConfigOutput();
+    }
 }
 
 function drawGrid(ctx, rect, grid, color) {
@@ -653,14 +664,66 @@ function showResultsForCurrentPage() {
     }
 }
 
-function exportCSV() {
-    const csv = APP_STATE.grader.exportCSV();
-    if (!csv) return;
+function exportExcel() {
+    const data = APP_STATE.grader.getExcelData();
+    if (!data) {
+        alert('エクスポートするデータがありません。');
+        return;
+    }
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'grading_results.csv';
-    link.click();
+    const wb = XLSX.utils.book_new();
+    const ws_data = [];
+
+    // 1. Headers
+    ws_data.push(data.headers);
+
+    // 2. Points (Row 2)
+    ws_data.push(data.pointsRow);
+
+    // Create Base Sheet
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
+
+    // 3. Add Student Rows with Formulas
+    const numQ = data.headers.length - 2; // Exclude ID and Total
+    // Points Range: $B$2:$[LastCol]$2
+    // SheetJS uses 0-indexed columns. Q1 is Col 1 ('B'). Last Q is Col numQ.
+    const startColStr = XLSX.utils.encode_col(1); // 'B'
+    const endColStr = XLSX.utils.encode_col(numQ);
+    const pointsRange = `$${startColStr}$2:$${endColStr}$2`;
+
+    data.dataRows.forEach((row, idx) => {
+        const rowNum = idx + 3; // Excel Row Number (1-based)
+
+        // Note: row array contains [ID, 1, 0, ..., null/dummy]
+        // We write it to the sheet
+        XLSX.utils.sheet_add_aoa(ws, [row], { origin: -1 });
+
+        // Overwrite the last cell (Total Score) with Formula
+        // Total Score Column is index numQ + 1
+        const totalCellAddr = XLSX.utils.encode_cell({ r: rowNum - 1, c: numQ + 1 });
+
+        // Student Answers Range: B[Row]:[LastCol][Row]
+        const studentRange = `${startColStr}${rowNum}:${endColStr}${rowNum}`;
+        const formula = `SUMPRODUCT(${pointsRange},${studentRange})`;
+
+        ws[totalCellAddr] = { t: 'n', f: formula };
+    });
+
+    XLSX.utils.book_append_sheet(wb, ws, "Grading Results");
+    XLSX.writeFile(wb, "grading_results.xlsx");
+}
+
+function updateConfigOutput() {
+    const json = JSON.stringify(APP_STATE.config, null, 2);
+    const textarea = document.getElementById('configOutput');
+    if (textarea) textarea.value = json;
+}
+
+function copyConfigToClipboard() {
+    const textarea = document.getElementById('configOutput');
+    if (!textarea) return;
+    textarea.select();
+    document.execCommand('copy');
+    alert('設定値をクリップボードにコピーしました。');
 }
 
