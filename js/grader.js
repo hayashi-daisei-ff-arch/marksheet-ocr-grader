@@ -88,6 +88,59 @@ class Grader {
         return [headers.join(","), ...rows].join("\n");
     }
 
+    /**
+     * Get data object for Excel export
+     * Structure:
+     * - Headers: ["Student ID", "Q1", "Q2"..., "Total"]
+     * - Points: ["Points", 0, 0..., (Formula)]
+     * - Rows: [ID, 1/0, 1/0..., (Formula)]
+     */
+    getExcelData() {
+        if (this.results.length === 0) return null;
+
+        const numQuestions = this.correctAnswers.length;
+
+        // 1. Header Row
+        const headers = ["Student ID"];
+        for (let i = 1; i <= numQuestions; i++) headers.push(`Q${i}`);
+        headers.push("Total Score");
+
+        // 2. Points Row (Default 0 per question)
+        const pointsRow = ["Points (Set values here)"];
+        for (let i = 0; i < numQuestions; i++) pointsRow.push(0);
+        pointsRow.push(null); // Last cell reserved for potential total check or empty
+
+        // 3. Student Data Rows (Binary 1/0 for Correct/Incorrect)
+        const dataRows = this.results.map((r, rIdx) => {
+            const rowData = [r.studentId];
+
+            // Add 1 for correct, 0 for incorrect
+            r.details.forEach(d => {
+                rowData.push(d.isCorrect ? 1 : 0);
+            });
+
+            // Add Formula for Total Score
+            // Formula: =SUMPRODUCT(PointsRow, ThisRowQuestions)
+            // Points are in Row 2 (Index 2 in 1-based Excel). Columns B to (B+N).
+            // Current Row is 3 + rIdx.
+            const rowNum = 3 + rIdx; // Header is 1, Points is 2, Data starts 3
+            // Columns: StudentID is A. Q1 is B.
+            // Start Col: B (ASCII 66)
+            // End Col: B + numQuestions - 1
+
+            // Using R1C1 or A1 notation? SheetJS utility helps, but for raw strings we need logic.
+            // Let's rely on app.js to construct the sheet with proper types.
+            // Here we just return the raw data and let app.js handle SheetJS specifics.
+            return rowData;
+        });
+
+        return {
+            headers,
+            pointsRow,
+            dataRows
+        };
+    }
+
     reset() {
         this.results = [];
     }
