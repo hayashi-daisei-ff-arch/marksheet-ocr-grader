@@ -93,6 +93,15 @@ function initUI() {
     // Debug
     document.getElementById('copyConfigBtn').addEventListener('click', copyConfigToClipboard);
 
+    // Results Preview Toggle
+    const resPanel = document.getElementById('resultsPreview');
+    resPanel.addEventListener('click', (e) => {
+        // Only toggle if clicking the header H3 or its text
+        if (e.target.tagName === 'H3' || e.target.closest('h3')) {
+            resPanel.classList.toggle('collapsed');
+        }
+    });
+
     // Nav
     document.getElementById('prevPage').addEventListener('click', () => changePage(-1));
     document.getElementById('nextPage').addEventListener('click', () => changePage(1));
@@ -621,7 +630,7 @@ async function startGradingFlow() {
         document.getElementById('pageIndicator').textContent = `Processing ${p} / ${APP_STATE.totalPages}`;
 
         // Short pause to allow browser to render the canvas update
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise(resolve => setTimeout(resolve, 200));
     }
 
     document.getElementById('loader').style.display = 'none';
@@ -656,7 +665,12 @@ function displayResultsWithAnswers(page, studentId, answers) {
     answers.forEach((ans, idx) => {
         const div = document.createElement('div');
         div.className = 'ans-item';
-        div.textContent = `${idx + 1}:${ans ?? '-'}`;
+        if (ans === null) {
+            div.classList.add('empty');
+            div.textContent = `${idx + 1}: -`;
+        } else {
+            div.textContent = `${idx + 1}:${ans}`;
+        }
         grid.appendChild(div);
     });
 }
