@@ -141,6 +141,16 @@ class Grader {
         };
     }
 
+    /**
+     * Get raw data for custom export formatting
+     */
+    getRawData() {
+        return {
+            correctAnswers: this.correctAnswers,
+            results: this.results
+        };
+    }
+
     reset() {
         this.results = [];
     }
