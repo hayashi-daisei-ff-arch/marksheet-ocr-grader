@@ -93,6 +93,11 @@ function initUI() {
     // Debug
     document.getElementById('copyConfigBtn').addEventListener('click', copyConfigToClipboard);
 
+    // Help
+    document.getElementById('helpBtn').addEventListener('click', () => {
+        window.open('https://github.com/hayashi-daisei-ff-arch/marksheet-ocr-grader/blob/main/README.md', '_blank');
+    });
+
     // Results Preview Toggle
     const resPanel = document.getElementById('resultsPreview');
     resPanel.addEventListener('click', (e) => {
@@ -745,12 +750,33 @@ function drawGradingResultOverlay() {
 }
 
 
-function displayResultsWithAnswers(page, studentId, answers) {
+function displayResultsWithAnswers(page, studentId, answers, score, maxScore) {
     document.getElementById('resultsPreview').style.display = 'block';
     document.getElementById('previewPageNum').textContent = `Page ${page}`;
-    document.getElementById('resStudentId').textContent = studentId;
+
+    // Student ID with edit capability
+    const sidEl = document.getElementById('resStudentId');
+    sidEl.textContent = studentId;
+
+    if (page > 1) {
+        sidEl.style.cursor = 'pointer';
+        sidEl.style.textDecoration = 'underline';
+        sidEl.title = 'クリックして学籍番号を修正';
+        sidEl.onclick = () => editStudentId(page, studentId);
+    } else {
+        sidEl.style.cursor = 'default';
+        sidEl.style.textDecoration = 'none';
+        sidEl.onclick = null;
+    }
+
     document.getElementById('resMarkCount').textContent = answers.filter(a => a !== null).length;
-    document.getElementById('resScore').textContent = page === 1 ? '正答キー' : '-';
+
+    // Score display: "Score / Max"
+    if (score !== null && maxScore !== null && score !== undefined) {
+        document.getElementById('resScore').textContent = `${score} / ${maxScore}`;
+    } else {
+        document.getElementById('resScore').textContent = page === 1 ? '正答キー' : '-';
+    }
 
     // Show answer values
     const grid = document.getElementById('resAnswersGrid');
@@ -773,6 +799,19 @@ function displayResultsWithAnswers(page, studentId, answers) {
 
         grid.appendChild(div);
     });
+}
+
+function editStudentId(page, currentId) {
+    const newId = prompt("学籍番号を修正:", currentId);
+    if (newId === null) return;
+    const trimmed = newId.trim();
+    if (trimmed === currentId) return;
+
+    const res = APP_STATE.grader.results.find(r => r.page === page);
+    if (res) {
+        res.studentId = trimmed;
+        showResultsForCurrentPage();
+    }
 }
 
 function editAnswer(page, qIdx, currentVal) {
@@ -831,10 +870,10 @@ function showResultsForCurrentPage() {
     if (res) {
         // Map details back to simple answer array for display
         const answers = res.details.map(d => d.student);
-        displayResultsWithAnswers(res.page, res.studentId, answers);
+        displayResultsWithAnswers(res.page, res.studentId, answers, res.score, res.maxScore);
     } else if (APP_STATE.currentPage === 1 && APP_STATE.answerKey.length > 0) {
         // Show Answer Key for Page 1
-        displayResultsWithAnswers(1, "正答キー", APP_STATE.answerKey);
+        displayResultsWithAnswers(1, "正答キー", APP_STATE.answerKey, null, null);
     } else {
         document.getElementById('resultsPreview').style.display = 'none';
     }
@@ -867,52 +906,78 @@ function exportExcel() {
 
     // Row 3: Correct Answers
     const keyRow = ["Correct Answer"];
-    // correctAnswers array might contain "MULTIPLE" strings or nulls. 
     keyRow.push(...correctAnswers.map(a => a === null ? "" : a));
     keyRow.push(null);
     ws_data.push(keyRow);
 
+    // Prepare Stats
+    const correctCounts = new Array(numQ).fill(0);
+    const validStudentCount = results.length;
+
+    // Add Student Rows and Collect Stats
+    results.forEach((r) => {
+        const rowData = [r.studentId];
+        r.details.forEach((d, qIdx) => {
+            rowData.push(d.student === null ? "" : d.student);
+            if (d.isCorrect) {
+                if (correctCounts[qIdx] !== undefined) correctCounts[qIdx]++;
+            }
+        });
+        ws_data.push(rowData);
+    });
+
     // Create Sheet
     const ws = XLSX.utils.aoa_to_sheet(ws_data);
 
-    // Column Index Utility check
+    // Column Index Utility
     if (!XLSX.utils.encode_col) {
         alert("SheetJS utility error.");
         return;
     }
 
-    const startCol = XLSX.utils.encode_col(1); // 'B' (Index 1)
-    const endCol = XLSX.utils.encode_col(numQ); // Last Answer Col
-
-    // Points Range: Row 2. Key Range: Row 3.
+    const startCol = XLSX.utils.encode_col(1); // 'B'
+    const endCol = XLSX.utils.encode_col(numQ);
     const pointsRange = `$${startCol}$2:$${endCol}$2`;
     const keyRange = `$${startCol}$3:$${endCol}$3`;
 
+    // Add Formulas (Overwriting total score cells)
     results.forEach((r, idx) => {
         const rowNum = idx + 4; // Data starts at Row 4
-
-        const rowData = [r.studentId];
-        // Just the values (1, 2, ... or null)
-        r.details.forEach(d => {
-            // If null, empty string
-            rowData.push(d.student === null ? "" : d.student);
-        });
-
-        XLSX.utils.sheet_add_aoa(ws, [rowData], { origin: -1 });
-
-        // Total Score Formula
-        // Total Score Column is index numQ + 1
         const totalCellAddr = XLSX.utils.encode_cell({ r: rowNum - 1, c: numQ + 1 });
         const studentRange = `${startCol}${rowNum}:${endCol}${rowNum}`;
-
-        // SUMPRODUCT((StudentRange=KeyRange)*PointsRange)
         const formula = `SUMPRODUCT((${studentRange}=${keyRange})*${pointsRange})`;
-
         ws[totalCellAddr] = { t: 'n', f: formula };
     });
 
+    // Add Accuracy Summary Row
+    const summaryRowIndex = 4 + results.length; // 1-based Row Index for Excel (logic: 3 header rows + N students + 1) -> Actually ws_data has 3+N rows. So next is 3+N. In 0-indexed array it is index 3+N.
+    // Wait, aoa_to_sheet uses 0-indexed row/col for encode_cell.
+    // ws_data length is (3 + results.length). So next row index is (3 + results.length).
+    const nextRowIdx = 3 + results.length;
+
+    const summaryLabelCell = XLSX.utils.encode_cell({ r: nextRowIdx, c: 0 });
+    XLSX.utils.sheet_add_aoa(ws, [["正答率"]], { origin: summaryLabelCell });
+
+    // Calculate Rates
+    const statsRow = [];
+    for (let i = 0; i < numQ; i++) {
+        const rate = validStudentCount > 0 ? correctCounts[i] / validStudentCount : 0;
+        statsRow.push(rate);
+    }
+
+    const statsStartCell = XLSX.utils.encode_cell({ r: nextRowIdx, c: 1 });
+    XLSX.utils.sheet_add_aoa(ws, [statsRow], { origin: statsStartCell });
+
+    // Format as Percentage
+    for (let i = 0; i < numQ; i++) {
+        const cellRef = XLSX.utils.encode_cell({ r: nextRowIdx, c: i + 1 });
+        if (ws[cellRef]) {
+            ws[cellRef].z = '0%';
+        }
+    }
+
     XLSX.utils.book_append_sheet(wb, ws, "Grading Results");
-    XLSX.writeFile(wb, "grading_results_v2.xlsx");
+    XLSX.writeFile(wb, "grading_results.xlsx");
 }
 
 function updateConfigOutput() {
