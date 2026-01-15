@@ -438,6 +438,24 @@ canvas {
 .results-preview h3 {
     margin-bottom: 0.75rem;
     font-size: 0.9rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.results-preview h3::after {
+    content: '▼';
+    font-size: 0.8em;
+}
+
+.results-preview.collapsed {
+    max-height: 50px;
+    overflow: hidden;
+}
+
+.results-preview.collapsed h3::after {
+    content: '▲';
 }
 
 .stats {
@@ -480,4 +498,9 @@ canvas {
     background: #d1fae5;
     color: #065f46;
     border-color: #34d399;
+}
+
+.ans-item.empty {
+    color: #aaa;
+    border-color: #eee;
 }
