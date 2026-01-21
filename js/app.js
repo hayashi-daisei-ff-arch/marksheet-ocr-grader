@@ -362,6 +362,29 @@ function updateQuestionsPerBlock() {
     }
 }
 
+function getBlockQuestions(blockIndex) {
+    const input = document.getElementById(`block${blockIndex + 1}Questions`);
+    if (input) {
+        return parseInt(input.value) || 25;
+    }
+    return APP_STATE.config.questionsPerBlock || 25;
+}
+
+function resetStudentIdArea() {
+    APP_STATE.config.studentIdRegion = { x: 100, y: 229, w: 177, h: 272 };
+    drawOverlay();
+    alert('学籍番号エリアをリセットしました。');
+}
+
+function resetAllBlocks() {
+    APP_STATE.config.answerBlocks = [{}, {}, {}, {}];
+    for (let i = 1; i <= 4; i++) {
+        updateBlockStatus(i, false);
+    }
+    drawOverlay();
+    alert('全ブロックをリセットしました。');
+}
+
 function updateBlockVisibility() {
     const numBlocks = parseInt(document.getElementById('numBlocks').value) || 4;
 
@@ -507,7 +530,8 @@ async function analyzeFirstPage() {
 
     for (let i = 0; i < numBlocks; i++) {
         const block = APP_STATE.config.answerBlocks[i];
-        const grid = { rows: APP_STATE.config.questionsPerBlock, cols: 10 };
+        const blockQuestions = getBlockQuestions(i);
+        const grid = { rows: blockQuestions, cols: 10 };
 
         const blockRes = APP_STATE.ocrEngine.detectMarks(binImage, block, grid, APP_STATE.config.sensitivity);
         const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(blockRes.matrix);
@@ -1107,7 +1131,8 @@ async function reanalyzeCurrentPage() {
             const blockConfig = APP_STATE.config.answerBlocks[i];
             if (!blockConfig) continue;
 
-            const grid = { rows: qPerBlock, cols: APP_STATE.config.questionsPerOption || 10 };
+            const blockQuestions = getBlockQuestions(i);
+            const grid = { rows: blockQuestions, cols: APP_STATE.config.questionsPerOption || 10 };
 
             const ansRes = APP_STATE.ocrEngine.detectMarks(binImage, blockConfig, grid, APP_STATE.config.sensitivity);
             const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(ansRes.matrix);
@@ -1119,6 +1144,13 @@ async function reanalyzeCurrentPage() {
 
         // Update View
         await visualizeCurrentPage();
+
+        // Update student list if modal is open
+        const modal = document.getElementById('studentListModal');
+        if (modal && modal.style.display === 'block') {
+            renderStudentList();
+        }
+
         alert('再解析が完了しました。');
 
     } catch (e) {
