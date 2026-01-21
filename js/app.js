@@ -362,12 +362,12 @@ function updateQuestionsPerBlock() {
     }
 }
 
-function getBlockQuestions(blockIndex) {
-    const input = document.getElementById(`block${blockIndex + 1}Questions`);
+function getBlockOptions(blockIndex) {
+    const input = document.getElementById(`block${blockIndex + 1}Options`);
     if (input) {
-        return parseInt(input.value) || 25;
+        return parseInt(input.value) || 10;
     }
-    return APP_STATE.config.questionsPerBlock || 25;
+    return 10;
 }
 
 function resetStudentIdArea() {
@@ -530,8 +530,8 @@ async function analyzeFirstPage() {
 
     for (let i = 0; i < numBlocks; i++) {
         const block = APP_STATE.config.answerBlocks[i];
-        const blockQuestions = getBlockQuestions(i);
-        const grid = { rows: blockQuestions, cols: 10 };
+        const blockOptions = getBlockOptions(i);
+        const grid = { rows: APP_STATE.config.questionsPerBlock, cols: blockOptions };
 
         const blockRes = APP_STATE.ocrEngine.detectMarks(binImage, block, grid, APP_STATE.config.sensitivity);
         const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(blockRes.matrix);
@@ -1131,8 +1131,8 @@ async function reanalyzeCurrentPage() {
             const blockConfig = APP_STATE.config.answerBlocks[i];
             if (!blockConfig) continue;
 
-            const blockQuestions = getBlockQuestions(i);
-            const grid = { rows: blockQuestions, cols: APP_STATE.config.questionsPerOption || 10 };
+            const blockOptions = getBlockOptions(i);
+            const grid = { rows: qPerBlock, cols: blockOptions };
 
             const ansRes = APP_STATE.ocrEngine.detectMarks(binImage, blockConfig, grid, APP_STATE.config.sensitivity);
             const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(ansRes.matrix);
