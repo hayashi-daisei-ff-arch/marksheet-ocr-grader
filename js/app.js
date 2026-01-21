@@ -9,10 +9,10 @@ const APP_STATE = {
 
     // Config
     config: {
-        threshold: 128,
-        sensitivity: 0.3,
-        contrast: 0, // Default contrast
-        studentIdRegion: { x: 50, y: 150, w: 200, h: 400 },
+        threshold: 208,
+        sensitivity: 0.2,
+        contrast: 0,
+        studentIdRegion: { x: 100, y: 229, w: 177, h: 272 },
         studentIdGrid: { rows: 10, cols: 7 },
 
         // 4 separate answer blocks
@@ -82,7 +82,9 @@ function initUI() {
     contrastSlider.addEventListener('input', (e) => {
         contrastValue.textContent = e.target.value;
         APP_STATE.config.contrast = parseInt(e.target.value);
-        requestRender(); // Always render on contrast change to see effect
+    });
+    contrastSlider.addEventListener('change', (e) => {
+        requestRender(); // Render only when slider is released to avoid race condition
     });
 
     // Student List
@@ -694,6 +696,9 @@ async function startGradingFlow() {
     document.getElementById('loader').style.display = 'none';
     document.getElementById('startGradingBtn').disabled = false;
     document.getElementById('exportExcelBtn').style.display = 'inline-block';
+    document.getElementById('studentListBtn').disabled = false;
+    document.getElementById('reanalyzePageBtn').style.display = 'inline-block';
+    document.getElementById('exportPdfBtn').style.display = 'inline-block';
 
     alert('全ページの採点が完了しました。Excelエクスポートが可能です。');
 
