@@ -530,11 +530,11 @@ async function analyzeFirstPage() {
 
     for (let i = 0; i < numBlocks; i++) {
         const block = APP_STATE.config.answerBlocks[i];
+        const grid = { rows: APP_STATE.config.questionsPerBlock, cols: 10 };
         const blockOptions = getBlockOptions(i);
-        const grid = { rows: APP_STATE.config.questionsPerBlock, cols: blockOptions };
 
         const blockRes = APP_STATE.ocrEngine.detectMarks(binImage, block, grid, APP_STATE.config.sensitivity);
-        const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(blockRes.matrix);
+        const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(blockRes.matrix, blockOptions);
 
         allAnswers.push(...blockAnswers);
         allDebugData.push(blockRes.debug);
@@ -1131,11 +1131,11 @@ async function reanalyzeCurrentPage() {
             const blockConfig = APP_STATE.config.answerBlocks[i];
             if (!blockConfig) continue;
 
+            const grid = { rows: qPerBlock, cols: 10 };
             const blockOptions = getBlockOptions(i);
-            const grid = { rows: qPerBlock, cols: blockOptions };
 
             const ansRes = APP_STATE.ocrEngine.detectMarks(binImage, blockConfig, grid, APP_STATE.config.sensitivity);
-            const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(ansRes.matrix);
+            const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(ansRes.matrix, blockOptions);
             answers.push(...blockAnswers);
         }
 
