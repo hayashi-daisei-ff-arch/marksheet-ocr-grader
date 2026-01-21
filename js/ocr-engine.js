@@ -14,15 +14,15 @@ class OCREngine {
      */
     applyContrast(imageData, contrast) {
         if (!contrast || contrast === 0) return imageData;
-        
+
         const data = imageData.data;
         // Factor formula: (259 * (C + 255)) / (255 * (259 - C))
         const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
 
         for (let i = 0; i < data.length; i += 4) {
             data[i] = factor * (data[i] - 128) + 128;     // R
-            data[i+1] = factor * (data[i+1] - 128) + 128; // G
-            data[i+2] = factor * (data[i+2] - 128) + 128; // B
+            data[i + 1] = factor * (data[i + 1] - 128) + 128; // G
+            data[i + 2] = factor * (data[i + 2] - 128) + 128; // B
             // Alpha (data[i+3]) unchanged
         }
         return imageData;
@@ -179,9 +179,10 @@ class OCREngine {
     /**
      * Interpret grid results for Answers (Horizontal rows)
      * @param {Array} matrix Results from detectMarks
+     * @param {number} maxOptions Maximum valid options (default 10, if 4 then ignore 5-10)
      * @returns {Array} Array of answers
      */
-    readHorizontalAnswers(matrix) {
+    readHorizontalAnswers(matrix, maxOptions = 10) {
         // Standard mark sheet: Each row is a question. Columns are options.
         // IMPORTANT: Physical layout is 1,2,3,4,5,6,7,8,9,0
         // So column 0 = value 1, column 1 = value 2, ..., column 8 = value 9, column 9 = value 0
@@ -192,7 +193,11 @@ class OCREngine {
                 if (cell.isMarked) {
                     // Map column index to actual value (1-9,0 order)
                     const value = colIdx === 9 ? 0 : colIdx + 1;
-                    markedIndices.push(value);
+
+                    // Filter: ignore values beyond maxOptions
+                    if (value <= maxOptions || value === 0) {
+                        markedIndices.push(value);
+                    }
                 }
             });
 
