@@ -9,9 +9,10 @@ const APP_STATE = {
 
     // Config
     config: {
-        threshold: 211,
-        sensitivity: 0.2,
-        studentIdRegion: { x: 102.5, y: 230, w: 174, h: 272 },
+        threshold: 128,
+        sensitivity: 0.3,
+        contrast: 0, // Default contrast
+        studentIdRegion: { x: 50, y: 150, w: 200, h: 400 },
         studentIdGrid: { rows: 10, cols: 7 },
 
         // 4 separate answer blocks
@@ -43,6 +44,8 @@ function initUI() {
     document.getElementById('thresholdValue').textContent = APP_STATE.config.threshold;
     document.getElementById('sensitivitySlider').value = APP_STATE.config.sensitivity;
     document.getElementById('sensitivityValue').textContent = Math.round(APP_STATE.config.sensitivity * 100) + '%';
+    document.getElementById('contrastSlider').value = APP_STATE.config.contrast;
+    document.getElementById('contrastValue').textContent = APP_STATE.config.contrast;
 
     // File Upload
     const dropZone = document.getElementById('dropZone');
@@ -64,11 +67,46 @@ function initUI() {
         requestRender();
     });
 
-    document.getElementById('sensitivitySlider').addEventListener('input', (e) => {
+    const sensitivitySlider = document.getElementById('sensitivitySlider');
+    const sensitivityValue = document.getElementById('sensitivityValue');
+    sensitivitySlider.addEventListener('input', (e) => {
+        sensitivityValue.textContent = Math.round(e.target.value * 100) + '%';
         APP_STATE.config.sensitivity = parseFloat(e.target.value);
-        document.getElementById('sensitivityValue').textContent = Math.round(APP_STATE.config.sensitivity * 100) + '%';
-        // Re-analyze view only?
+        if (document.getElementById('resultsPreview').style.display !== 'none') {
+            requestRender();
+        }
     });
+
+    const contrastSlider = document.getElementById('contrastSlider');
+    const contrastValue = document.getElementById('contrastValue');
+    contrastSlider.addEventListener('input', (e) => {
+        contrastValue.textContent = e.target.value;
+        APP_STATE.config.contrast = parseInt(e.target.value);
+        requestRender(); // Always render on contrast change to see effect
+    });
+
+    // Student List
+    const studentListBtn = document.getElementById('studentListBtn');
+    if (studentListBtn) {
+        studentListBtn.addEventListener('click', toggleStudentList);
+    }
+    const closeModal = document.querySelector('.close-modal');
+    if (closeModal) {
+        closeModal.addEventListener('click', () => {
+            document.getElementById('studentListModal').style.display = 'none';
+        });
+    }
+    window.addEventListener('click', (e) => {
+        const m = document.getElementById('studentListModal');
+        if (e.target === m) m.style.display = 'none';
+    });
+
+    // Actions
+    const reanalyzeBtn = document.getElementById('reanalyzePageBtn');
+    if (reanalyzeBtn) reanalyzeBtn.addEventListener('click', reanalyzeCurrentPage);
+
+    const exportPdfBtn = document.getElementById('exportPdfBtn');
+    if (exportPdfBtn) exportPdfBtn.addEventListener('click', exportPdf);
 
     // Inputs
     document.getElementById('idDigits').addEventListener('change', updateGridConfig);
@@ -675,6 +713,11 @@ async function visualizeCurrentPage() {
     if (!imageData) return;
 
     // 1. Draw ID (fresh detection for ID area overlay)
+    // Apply contrast first
+    if (APP_STATE.config.contrast !== 0) {
+        APP_STATE.ocrEngine.applyContrast(imageData, APP_STATE.config.contrast);
+    }
+
     const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
     const idRes = APP_STATE.ocrEngine.detectMarks(binImage, APP_STATE.config.studentIdRegion, APP_STATE.config.studentIdGrid, APP_STATE.config.sensitivity);
 
@@ -978,6 +1021,214 @@ function exportExcel() {
 
     XLSX.utils.book_append_sheet(wb, ws, "Grading Results");
     XLSX.writeFile(wb, "grading_results.xlsx");
+}
+
+/* Student List Logic */
+function toggleStudentList() {
+    const modal = document.getElementById('studentListModal');
+    const tbody = document.querySelector('#studentListTable tbody');
+    tbody.innerHTML = '';
+
+    if (!APP_STATE.grader.results.length) {
+        alert('解析結果がありません。全ページ採点を行ってください。');
+        return;
+    }
+
+    APP_STATE.grader.results.forEach(res => {
+        const tr = document.createElement('tr');
+
+        // Check flags
+        let flagsHtml = '';
+        const answers = res.details.map(d => d.student);
+        const hasMulti = answers.some(a => typeof a === 'string' && a.includes(','));
+        const hasEmpty = answers.some(a => a === null);
+
+        if (hasMulti) flagsHtml += '<span class="flag-icon flag-multi" title="複数回答あり"></span>';
+        if (hasEmpty) flagsHtml += '<span class="flag-icon flag-empty" title="未回答あり"></span>';
+
+        // Mark count
+        const markCount = answers.filter(a => a !== null).length;
+
+        tr.innerHTML = `
+            <td>${res.page}</td>
+            <td>${res.studentId}</td>
+            <td>${markCount}</td>
+            <td>${flagsHtml}</td>
+        `;
+
+        tr.onclick = () => {
+            APP_STATE.currentPage = res.page;
+            updateNav();
+            requestRender().then(() => visualizeCurrentPage());
+            modal.style.display = 'none';
+        };
+
+        tbody.appendChild(tr);
+    });
+
+    modal.style.display = 'block';
+}
+
+/* Re-analyze Logic */
+async function reanalyzeCurrentPage() {
+    if (!APP_STATE.pdfHandler.pdfDoc) return;
+
+    const btn = document.getElementById('reanalyzePageBtn');
+    btn.disabled = true;
+    document.body.style.cursor = 'wait';
+
+    try {
+        const imageData = APP_STATE.pdfHandler.getImageData(); // Get current cached image
+        if (!imageData) throw new Error("No image data");
+
+        // Apply contrast
+        if (APP_STATE.config.contrast !== 0) {
+            APP_STATE.ocrEngine.applyContrast(imageData, APP_STATE.config.contrast);
+        }
+
+        // Binarize
+        const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
+
+        // Detect ID
+        const idRes = APP_STATE.ocrEngine.detectMarks(binImage, APP_STATE.config.studentIdRegion, APP_STATE.config.studentIdGrid, APP_STATE.config.sensitivity);
+        const studentId = APP_STATE.ocrEngine.readVerticalID(idRes.matrix);
+
+        // Detect Answers
+        const answers = [];
+        const numBlocks = parseInt(document.getElementById('numBlocks').value);
+        const qPerBlock = APP_STATE.config.questionsPerBlock;
+
+        for (let i = 0; i < numBlocks; i++) {
+            const blockConfig = APP_STATE.config.answerBlocks[i];
+            if (!blockConfig) continue;
+
+            const grid = { rows: qPerBlock, cols: APP_STATE.config.questionsPerOption || 10 };
+
+            const ansRes = APP_STATE.ocrEngine.detectMarks(binImage, blockConfig, grid, APP_STATE.config.sensitivity);
+            const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(ansRes.matrix);
+            answers.push(...blockAnswers);
+        }
+
+        // Update Grader
+        APP_STATE.grader.gradeStudent(APP_STATE.currentPage, studentId, answers);
+
+        // Update View
+        await visualizeCurrentPage();
+        alert('再解析が完了しました。');
+
+    } catch (e) {
+        console.error(e);
+        alert('再解析に失敗しました: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        document.body.style.cursor = 'default';
+    }
+}
+
+/* PDF Export Logic */
+async function exportPdf() {
+    if (!APP_STATE.grader.results.length) {
+        alert('エクスポートするデータがありません。');
+        return;
+    }
+
+    try {
+        const fileInput = document.getElementById('fileInput');
+        if (!fileInput.files.length) return;
+
+        const fileBuffer = await fileInput.files[0].arrayBuffer();
+        const pdfDoc = await PDFLib.PDFDocument.load(fileBuffer);
+        const pages = pdfDoc.getPages();
+
+        const numBlocks = parseInt(document.getElementById('numBlocks').value);
+        const qPerBlock = APP_STATE.config.questionsPerBlock;
+        const scale = APP_STATE.pdfHandler.scale;
+
+        APP_STATE.grader.results.forEach(res => {
+            const pageIndex = res.page - 1;
+            if (pageIndex < 0 || pageIndex >= pages.length) return;
+
+            const page = pages[pageIndex];
+            const { width, height } = page.getSize();
+
+            const toPdfX = (x) => x / scale;
+            const toPdfY = (y, h) => height - (y / scale) - (h / scale);
+            const toPdfW = (w) => w / scale;
+            const toPdfH = (h) => h / scale;
+
+            res.details.forEach((d, globalIdx) => {
+                const blockIdx = Math.floor(globalIdx / qPerBlock);
+                if (blockIdx >= numBlocks) return;
+
+                const inBlockIdx = globalIdx % qPerBlock;
+                const block = APP_STATE.config.answerBlocks[blockIdx];
+                if (!block) return;
+
+                const cellW = block.w / 10;
+                const cellH = block.h / qPerBlock;
+                const y = block.y + inBlockIdx * cellH;
+
+                let color = { r: 0.93, g: 0.26, b: 0.26 }; // Red
+                let opacity = 0.3;
+
+                if (d.student === null) {
+                    color = { r: 1, g: 0.75, b: 0.03 }; // Yellow
+                } else if (d.isCorrect) {
+                    color = { r: 0.06, g: 0.72, b: 0.4 }; // Green
+                }
+
+                if (d.student === null) {
+                    page.drawRectangle({
+                        x: toPdfX(block.x),
+                        y: toPdfY(y, cellH),
+                        width: toPdfW(block.w),
+                        height: toPdfH(cellH),
+                        color: PDFLib.rgb(color.r, color.g, color.b),
+                        opacity: opacity
+                    });
+                    return;
+                }
+
+                let indicesToDraw = [];
+                if (typeof d.student === 'number') {
+                    indicesToDraw.push(d.student === 0 ? 9 : d.student - 1);
+                } else if (typeof d.student === 'string') {
+                    d.student.split(',').forEach(v => {
+                        const n = parseInt(v);
+                        if (!isNaN(n)) indicesToDraw.push(n === 0 ? 9 : n - 1);
+                    });
+                }
+
+                indicesToDraw.forEach(colIdx => {
+                    const x = block.x + colIdx * cellW;
+                    const drawX = x + 2;
+                    const drawY = y + 2;
+                    const drawW = cellW - 4;
+                    const drawH = cellH - 4;
+
+                    page.drawRectangle({
+                        x: toPdfX(drawX),
+                        y: toPdfY(drawY, drawH),
+                        width: toPdfW(drawW),
+                        height: toPdfH(drawH),
+                        color: PDFLib.rgb(color.r, color.g, color.b),
+                        opacity: opacity
+                    });
+                });
+            });
+        });
+
+        const pdfBytes = await pdfDoc.save();
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'graded_with_overlay.pdf';
+        link.click();
+
+    } catch (e) {
+        console.error(e);
+        alert('PDF保存に失敗しました: ' + e.message);
+    }
 }
 
 function updateConfigOutput() {
