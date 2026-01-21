@@ -776,18 +776,13 @@ async function visualizeCurrentPage() {
 }
 
 function drawGradingResultOverlay(allBlockDetections = []) {
-    const res = APP_STATE.grader.results.find(r => r.page === APP_STATE.currentPage);
-    if (!res) return;
-
     const canvas = document.getElementById('overlayCanvas');
     const ctx = canvas.getContext('2d');
-
-    // Do not clear here, ID overlay is already drawn
 
     const numBlocks = parseInt(document.getElementById('numBlocks').value) || 4;
     const qPerBlock = APP_STATE.config.questionsPerBlock;
 
-    // First, draw all detected marks (including invalid ones)
+    // First, ALWAYS draw all detected marks (including invalid ones in grey)
     allBlockDetections.forEach(({ debug, maxOptions, blockIdx }) => {
         const block = APP_STATE.config.answerBlocks[blockIdx];
         if (!block) return;
@@ -813,7 +808,12 @@ function drawGradingResultOverlay(allBlockDetections = []) {
         });
     });
 
-    // Then, draw grading results on top (correct/incorrect/empty)
+    // Then, if grading results exist, draw them on top
+    const res = APP_STATE.grader.results.find(r => r.page === APP_STATE.currentPage);
+    if (!res) return; // No grading results yet
+
+    // Do not clear here, ID overlay and grey marks are already drawn
+
     res.details.forEach((d, globalIdx) => {
         const blockIdx = Math.floor(globalIdx / qPerBlock);
         if (blockIdx >= numBlocks) return;
@@ -1097,47 +1097,61 @@ function exportExcel() {
 /* Student List Logic */
 function toggleStudentList() {
     const modal = document.getElementById('studentListModal');
-    const tbody = document.querySelector('#studentListTable tbody');
-    tbody.innerHTML = '';
 
     if (!APP_STATE.grader.results.length) {
         alert('解析結果がありません。全ページ採点を行ってください。');
         return;
     }
 
+    renderStudentList(); // Call the new rendering function
+    modal.style.display = 'block';
+}
+
+function renderStudentList() {
+    const tbody = document.querySelector('#studentListTable tbody');
+    tbody.innerHTML = '';
+
+    if (!APP_STATE.grader.results.length) return;
+
+    // Get total expected marks from correct answer key
+    const expectedMarkCount = APP_STATE.grader.correctAnswers.filter(a => a !== null).length;
+
     APP_STATE.grader.results.forEach(res => {
         const tr = document.createElement('tr');
 
-        // Check flags
-        let flagsHtml = '';
         const answers = res.details.map(d => d.student);
         const hasMulti = answers.some(a => typeof a === 'string' && a.includes(','));
         const hasEmpty = answers.some(a => a === null);
 
-        if (hasMulti) flagsHtml += '<span class="flag-icon flag-multi" title="複数回答あり"></span>';
-        if (hasEmpty) flagsHtml += '<span class="flag-icon flag-empty" title="未回答あり"></span>';
-
         // Mark count
         const markCount = answers.filter(a => a !== null).length;
+
+        // Mark discrepancy
+        const hasDiscrepancy = markCount !== expectedMarkCount;
+
+        // Color-coded flags
+        const multiFlag = hasMulti ? '<span style="color: red; font-weight: bold;">●</span>' : '<span style="color: green;">●</span>';
+        const emptyFlag = hasEmpty ? '×' : '';
+        const discrepancyFlag = hasDiscrepancy ? '!' : '';
 
         tr.innerHTML = `
             <td>${res.page}</td>
             <td>${res.studentId}</td>
             <td>${markCount}</td>
-            <td>${flagsHtml}</td>
+            <td>${multiFlag}</td>
+            <td>${emptyFlag}</td>
+            <td>${discrepancyFlag}</td>
         `;
 
         tr.onclick = () => {
             APP_STATE.currentPage = res.page;
             updateNav();
             requestRender().then(() => visualizeCurrentPage());
-            modal.style.display = 'none';
+            document.getElementById('studentListModal').style.display = 'none';
         };
 
         tbody.appendChild(tr);
     });
-
-    modal.style.display = 'block';
 }
 
 /* Re-analyze Logic */
