@@ -1248,7 +1248,8 @@ async function reanalyzeCurrentPage() {
         }
 
         // Update Grader
-        APP_STATE.grader.gradeStudent(APP_STATE.currentPage, studentId, answers);
+        // Update Grader
+        APP_STATE.grader.gradeStudent(studentId, answers, APP_STATE.currentPage);
 
         // Update View
         await visualizeCurrentPage();
