@@ -236,10 +236,18 @@ async function requestRender() {
     // Render underlying PDF
     const viewport = await APP_STATE.pdfHandler.renderPage(APP_STATE.currentPage);
 
+    // Apply Contrast if needed
+    const imageData = APP_STATE.pdfHandler.getImageData();
+    if (imageData && APP_STATE.config.contrast !== 0) {
+        APP_STATE.ocrEngine.applyContrast(imageData, APP_STATE.config.contrast);
+        // Reflect contrast change to canvas immediately
+        APP_STATE.pdfHandler.ctx.putImageData(imageData, 0, 0);
+    }
+
     // Binarize preview if checked
     const showBin = document.getElementById('showBinarized').checked;
-    if (showBin) {
-        const imageData = APP_STATE.pdfHandler.getImageData();
+    if (showBin && imageData) {
+        // Use the (possibly contrast-adjusted) imageData
         const binarized = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
         APP_STATE.pdfHandler.ctx.putImageData(binarized, 0, 0);
     }
@@ -789,12 +797,11 @@ async function visualizeCurrentPage() {
     if (!imageData) return;
 
     // 1. Draw ID (fresh detection for ID area overlay)
-    // Apply contrast first
-    if (APP_STATE.config.contrast !== 0) {
-        APP_STATE.ocrEngine.applyContrast(imageData, APP_STATE.config.contrast);
-        // Reflect changes to canvas
-        APP_STATE.pdfHandler.ctx.putImageData(imageData, 0, 0);
-    }
+    // Contrast is already applied by requestRender if it was called before
+    // If we just need to re-visualize without re-render, we assume canvas has correct state.
+
+    // However, if we do NOT call requestRender before this, we might be using raw PDF render?
+    // visualizeCurrentPage is often called after requestRender.
 
     const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
     const idRes = APP_STATE.ocrEngine.detectMarks(binImage, APP_STATE.config.studentIdRegion, APP_STATE.config.studentIdGrid, APP_STATE.config.sensitivity);
@@ -1251,10 +1258,10 @@ async function reanalyzeCurrentPage() {
         const imageData = APP_STATE.pdfHandler.getImageData(); // Get current cached image
         if (!imageData) throw new Error("No image data");
 
-        // Apply contrast
-        if (APP_STATE.config.contrast !== 0) {
-            APP_STATE.ocrEngine.applyContrast(imageData, APP_STATE.config.contrast);
-        }
+        // Apply contrast: Removed because imageData comes from canvas which already has contrast applied by requestRender
+        // if (APP_STATE.config.contrast !== 0) {
+        //    APP_STATE.ocrEngine.applyContrast(imageData, APP_STATE.config.contrast);
+        // }
 
         // Binarize
         const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
