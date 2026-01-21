@@ -9,7 +9,7 @@ const APP_STATE = {
 
     // Config
     config: {
-        threshold: 208,
+        threshold: 200,
         sensitivity: 0.2,
         contrast: 0,
         studentIdRegion: { x: 100, y: 229, w: 177, h: 272 },
@@ -792,6 +792,8 @@ async function visualizeCurrentPage() {
     // Apply contrast first
     if (APP_STATE.config.contrast !== 0) {
         APP_STATE.ocrEngine.applyContrast(imageData, APP_STATE.config.contrast);
+        // Reflect changes to canvas
+        APP_STATE.pdfHandler.ctx.putImageData(imageData, 0, 0);
     }
 
     const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
