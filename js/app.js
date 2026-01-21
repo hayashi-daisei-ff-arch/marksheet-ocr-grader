@@ -9,7 +9,7 @@ const APP_STATE = {
 
     // Config
     config: {
-        threshold: 200,
+        threshold: 205,
         sensitivity: 0.2,
         contrast: 0,
         studentIdRegion: { x: 100, y: 229, w: 177, h: 272 },
