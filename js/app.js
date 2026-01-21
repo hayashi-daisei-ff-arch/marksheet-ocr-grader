@@ -997,6 +997,16 @@ function editAnswer(page, qIdx, currentVal) {
     }
 
     // Update Logic
+    if (page === 1) {
+        if (APP_STATE.answerKey[qIdx] !== undefined) APP_STATE.answerKey[qIdx] = newVal;
+        if (APP_STATE.grader.correctAnswers && APP_STATE.grader.correctAnswers[qIdx] !== undefined) {
+            APP_STATE.grader.correctAnswers[qIdx] = newVal;
+        }
+        showResultsForCurrentPage();
+        alert('正答キーを更新しました。全ページ採点を行うと反映されます。');
+        return;
+    }
+
     const res = APP_STATE.grader.results.find(r => r.page === page);
     if (!res) return;
 
@@ -1168,23 +1178,38 @@ function renderStudentList() {
 
         const answers = res.details.map(d => d.student);
         const hasMulti = answers.some(a => typeof a === 'string' && a.includes(','));
-        const hasEmpty = answers.some(a => a === null);
 
-        // Mark count
-        const markCount = answers.filter(a => a !== null).length;
+        // 1. Total Mark Count (including multiple marks)
+        let totalMarks = 0;
+        answers.forEach(a => {
+            if (a === null) return;
+            if (typeof a === 'string' && a.includes(',')) {
+                totalMarks += a.split(',').length;
+            } else {
+                totalMarks += 1;
+            }
+        });
 
-        // Mark discrepancy
-        const hasDiscrepancy = markCount !== expectedMarkCount;
+        // 2. Flags Logic
+        // "未回答（検出）": Check if answered count matches expected count (e.g. 30/30)
+        const answeredCount = answers.filter(a => a !== null).length;
+        const hasUnanswered = answeredCount !== expectedMarkCount;
+
+        // Discrepancy: Same as Unanswered effectively, or strict check
+        // We'll treat them similarly based on user request
+        const hasDiscrepancy = hasUnanswered;
 
         // Color-coded flags: red = problem, green = OK
         const multiFlag = hasMulti
             ? '<span style="color: red; font-weight: bold;">●</span>'
             : '<span style="color: green;">●</span>';
 
-        const emptyFlag = hasEmpty
+        // Unanswered: Red if count mismatch
+        const emptyFlag = hasUnanswered
             ? '<span style="color: red; font-weight: bold;">●</span>'
             : '<span style="color: green;">●</span>';
 
+        // Discrepancy: Red if count mismatch
         const discrepancyFlag = hasDiscrepancy
             ? '<span style="color: red; font-weight: bold;">●</span>'
             : '<span style="color: green;">●</span>';
@@ -1192,7 +1217,7 @@ function renderStudentList() {
         tr.innerHTML = `
             <td>${res.page}</td>
             <td>${res.studentId}</td>
-            <td>${markCount}</td>
+            <td>${totalMarks}</td>
             <td>${multiFlag}</td>
             <td>${emptyFlag}</td>
             <td>${discrepancyFlag}</td>
@@ -1340,7 +1365,6 @@ async function exportPdf() {
                     });
                     return;
                 }
-
                 let indicesToDraw = [];
                 if (typeof d.student === 'number') {
                     indicesToDraw.push(d.student === 0 ? 9 : d.student - 1);
