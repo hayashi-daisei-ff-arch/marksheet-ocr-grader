@@ -1173,10 +1173,18 @@ function renderStudentList() {
         // Mark discrepancy
         const hasDiscrepancy = markCount !== expectedMarkCount;
 
-        // Color-coded flags
-        const multiFlag = hasMulti ? '<span style="color: red; font-weight: bold;">●</span>' : '<span style="color: green;">●</span>';
-        const emptyFlag = hasEmpty ? '×' : '';
-        const discrepancyFlag = hasDiscrepancy ? '!' : '';
+        // Color-coded flags: red = problem, green = OK
+        const multiFlag = hasMulti
+            ? '<span style="color: red; font-weight: bold;">●</span>'
+            : '<span style="color: green;">●</span>';
+
+        const emptyFlag = hasEmpty
+            ? '<span style="color: red; font-weight: bold;">●</span>'
+            : '<span style="color: green;">●</span>';
+
+        const discrepancyFlag = hasDiscrepancy
+            ? '<span style="color: red; font-weight: bold;">●</span>'
+            : '<span style="color: green;">●</span>';
 
         tr.innerHTML = `
             <td>${res.page}</td>
