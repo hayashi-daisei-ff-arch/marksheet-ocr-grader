@@ -37,19 +37,29 @@ class PDFHandler {
     async renderPage(num) {
         if (!this.pdfDoc) return;
 
+        // Cancel any pending render task
+        if (this.renderTask) {
+            try {
+                this.renderTask.cancel();
+            } catch (e) {
+                // Ignore cancel errors
+            }
+            this.renderTask = null;
+        }
+
         this.pageRendering = true;
-        
+
         try {
             const page = await this.pdfDoc.getPage(num);
-            
+
             // Calculate scale to fit width if needed, or stick to fixed high res
             // For OMR, fixed high res is better, but visual fit is important too.
             // Let's use a scale that gives good pixel density (e.g. 2.0)
-            const viewport = page.getViewport({scale: this.scale});
-            
+            const viewport = page.getViewport({ scale: this.scale });
+
             this.canvas.height = viewport.height;
             this.canvas.width = viewport.width;
-            
+
             // Sync overlay canvas size
             this.overlayCanvas.height = viewport.height;
             this.overlayCanvas.width = viewport.width;
@@ -59,9 +69,13 @@ class PDFHandler {
                 canvasContext: this.ctx,
                 viewport: viewport
             };
-            
-            await page.render(renderContext).promise;
-            
+
+            // Store the render task
+            this.renderTask = page.render(renderContext);
+
+            await this.renderTask.promise;
+            this.renderTask = null;
+
             this.pageRendering = false;
             this.pageNum = num;
 
@@ -73,6 +87,10 @@ class PDFHandler {
 
             return viewport; // Return viewport to help with coordinate mapping
         } catch (error) {
+            if (error.name === 'RenderingCancelledException') {
+                // Rendering cancelled, no need to log
+                return;
+            }
             console.error('Page render error:', error);
             this.pageRendering = false;
         }
