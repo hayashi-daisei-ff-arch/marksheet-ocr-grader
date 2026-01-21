@@ -604,7 +604,35 @@ function drawDetectionResultsBlocks(idRes, allDebugData) {
         }
     });
 
-    // Draw answer marks from all blocks
+    const numBlocks = parseInt(document.getElementById('numBlocks').value) || 4;
+    const qPerBlock = APP_STATE.config.questionsPerBlock;
+
+    // First, draw grey marks for invalid options
+    allDebugData.forEach((blockDebug, blockIdx) => {
+        const block = APP_STATE.config.answerBlocks[blockIdx];
+        if (!block) return;
+
+        const maxOptions = getBlockOptions(blockIdx);
+        const cellW = block.w / 10;
+
+        blockDebug.forEach(cell => {
+            if (cell.isMarked) {
+                // Calculate which option this cell represents
+                const colIdx = Math.floor((cell.x - block.x) / cellW);
+                const optionValue = colIdx === 9 ? 0 : colIdx + 1;
+
+                // Check if invalid
+                const isInvalid = optionValue > maxOptions && optionValue !== 0;
+
+                if (isInvalid) {
+                    ctx.fillStyle = 'rgba(150, 150, 150, 0.4)'; // Grey
+                    ctx.fillRect(cell.x, cell.y, cell.w, cell.h);
+                }
+            }
+        });
+    });
+
+    // Then, draw answer marks from all blocks (valid options with colors)
     const colors = [
         'rgba(16, 185, 129, 0.4)',  // Green
         'rgba(59, 130, 246, 0.4)',  // Blue
@@ -613,10 +641,25 @@ function drawDetectionResultsBlocks(idRes, allDebugData) {
     ];
 
     allDebugData.forEach((blockDebug, blockIdx) => {
+        const block = APP_STATE.config.answerBlocks[blockIdx];
+        if (!block) return;
+
+        const maxOptions = getBlockOptions(blockIdx);
+        const cellW = block.w / 10;
+
         blockDebug.forEach(cell => {
             if (cell.isMarked) {
-                ctx.fillStyle = colors[blockIdx];
-                ctx.fillRect(cell.x, cell.y, cell.w, cell.h);
+                // Calculate which option this cell represents
+                const colIdx = Math.floor((cell.x - block.x) / cellW);
+                const optionValue = colIdx === 9 ? 0 : colIdx + 1;
+
+                // Only draw colored overlay for valid options
+                const isValid = optionValue <= maxOptions || optionValue === 0;
+
+                if (isValid) {
+                    ctx.fillStyle = colors[blockIdx];
+                    ctx.fillRect(cell.x, cell.y, cell.w, cell.h);
+                }
             }
         });
     });
@@ -696,9 +739,10 @@ async function startGradingFlow() {
         for (let i = 0; i < numBlocks; i++) {
             const block = APP_STATE.config.answerBlocks[i];
             const grid = { rows: APP_STATE.config.questionsPerBlock, cols: 10 };
+            const blockOptions = getBlockOptions(i);
 
             const blockRes = APP_STATE.ocrEngine.detectMarks(binImage, block, grid, APP_STATE.config.sensitivity);
-            const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(blockRes.matrix);
+            const blockAnswers = APP_STATE.ocrEngine.readHorizontalAnswers(blockRes.matrix, blockOptions);
 
             studentAns.push(...blockAnswers);
             allDebugData.push(blockRes.debug);
