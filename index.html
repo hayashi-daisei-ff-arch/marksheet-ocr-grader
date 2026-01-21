@@ -126,8 +126,8 @@
                                 <div class="block-config">
                                     <h4>ブロック1（問1-25）</h4>
                                     <div class="input-row">
-                                        <label>最大問題数</label>
-                                        <input type="number" id="block1Questions" value="25" min="1" max="50">
+                                        <label>最大選択肢数</label>
+                                        <input type="number" id="block1Options" value="10" min="1" max="10">
                                     </div>
                                     <button id="setBlock1Btn" class="btn secondary small">マーク領域を指定</button>
                                     <span id="block1Status" class="status-indicator">未設定</span>
@@ -136,8 +136,8 @@
                                 <div class="block-config">
                                     <h4>ブロック2（問26-50）</h4>
                                     <div class="input-row">
-                                        <label>最大問題数</label>
-                                        <input type="number" id="block2Questions" value="25" min="1" max="50">
+                                        <label>最大選択肢数</label>
+                                        <input type="number" id="block2Options" value="10" min="1" max="10">
                                     </div>
                                     <button id="setBlock2Btn" class="btn secondary small">マーク領域を指定</button>
                                     <span id="block2Status" class="status-indicator">未設定</span>
@@ -146,8 +146,8 @@
                                 <div class="block-config">
                                     <h4>ブロック3（問51-75）</h4>
                                     <div class="input-row">
-                                        <label>最大問題数</label>
-                                        <input type="number" id="block3Questions" value="25" min="1" max="50">
+                                        <label>最大選択肢数</label>
+                                        <input type="number" id="block3Options" value="10" min="1" max="10">
                                     </div>
                                     <button id="setBlock3Btn" class="btn secondary small">マーク領域を指定</button>
                                     <span id="block3Status" class="status-indicator">未設定</span>
@@ -156,8 +156,8 @@
                                 <div class="block-config">
                                     <h4>ブロック4（問76-100）</h4>
                                     <div class="input-row">
-                                        <label>最大問題数</label>
-                                        <input type="number" id="block4Questions" value="25" min="1" max="50">
+                                        <label>最大選択肢数</label>
+                                        <input type="number" id="block4Options" value="10" min="1" max="10">
                                     </div>
                                     <button id="setBlock4Btn" class="btn secondary small">マーク領域を指定</button>
                                     <span id="block4Status" class="status-indicator">未設定</span>
@@ -243,7 +243,8 @@
                             <th>Page</th>
                             <th>ID</th>
                             <th>マーク数</th>
-                            <th>フラグ (複数/未回答)</th>
+                            <th>複数回答あり</th>
+                            <th>未回答あり</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
