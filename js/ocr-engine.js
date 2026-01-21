@@ -7,6 +7,28 @@ class OCREngine {
     }
 
     /**
+     * Apply contrast adjustment
+     * @param {ImageData} imageData 
+     * @param {number} contrast -100 to 100
+     * @returns {ImageData}
+     */
+    applyContrast(imageData, contrast) {
+        if (!contrast || contrast === 0) return imageData;
+        
+        const data = imageData.data;
+        // Factor formula: (259 * (C + 255)) / (255 * (259 - C))
+        const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+
+        for (let i = 0; i < data.length; i += 4) {
+            data[i] = factor * (data[i] - 128) + 128;     // R
+            data[i+1] = factor * (data[i+1] - 128) + 128; // G
+            data[i+2] = factor * (data[i+2] - 128) + 128; // B
+            // Alpha (data[i+3]) unchanged
+        }
+        return imageData;
+    }
+
+    /**
      * Binarize image data with improved pink/red line filtering
      * @param {ImageData} imageData 
      * @param {number} threshold 0-255
