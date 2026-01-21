@@ -753,14 +753,29 @@ async function visualizeCurrentPage() {
     // Clear & ID
     drawDetectionResultsBlocks(idRes, []);
 
-    // 2. Draw Answers from Grading Results
-    drawGradingResultOverlay();
+    // 2. Re-detect answer blocks to show ALL marks (including invalid options)
+    const numBlocks = parseInt(document.getElementById('numBlocks').value) || 4;
+    const qPerBlock = APP_STATE.config.questionsPerBlock;
+    const allBlockDetections = [];
 
-    // 3. Show Panel
+    for (let i = 0; i < numBlocks; i++) {
+        const blockConfig = APP_STATE.config.answerBlocks[i];
+        if (blockConfig && blockConfig.x) {
+            const grid = { rows: qPerBlock, cols: 10 };
+            const blockRes = APP_STATE.ocrEngine.detectMarks(binImage, blockConfig, grid, APP_STATE.config.sensitivity);
+            const maxOptions = getBlockOptions(i);
+            allBlockDetections.push({ debug: blockRes.debug, maxOptions: maxOptions, blockIdx: i });
+        }
+    }
+
+    // 3. Draw Answers from Grading Results with detection data
+    drawGradingResultOverlay(allBlockDetections);
+
+    // 4. Show Panel
     showResultsForCurrentPage();
 }
 
-function drawGradingResultOverlay() {
+function drawGradingResultOverlay(allBlockDetections = []) {
     const res = APP_STATE.grader.results.find(r => r.page === APP_STATE.currentPage);
     if (!res) return;
 
@@ -772,6 +787,33 @@ function drawGradingResultOverlay() {
     const numBlocks = parseInt(document.getElementById('numBlocks').value) || 4;
     const qPerBlock = APP_STATE.config.questionsPerBlock;
 
+    // First, draw all detected marks (including invalid ones)
+    allBlockDetections.forEach(({ debug, maxOptions, blockIdx }) => {
+        const block = APP_STATE.config.answerBlocks[blockIdx];
+        if (!block) return;
+
+        const cellW = block.w / 10;
+        const cellH = block.h / qPerBlock;
+
+        debug.forEach(cell => {
+            if (cell.isMarked) {
+                // Calculate which option this cell represents (1-9,0)
+                const colIdx = Math.floor((cell.x - block.x) / cellW);
+                const optionValue = colIdx === 9 ? 0 : colIdx + 1;
+
+                // Check if this option is beyond maxOptions
+                const isInvalid = optionValue > maxOptions && optionValue !== 0;
+
+                if (isInvalid) {
+                    // Draw invalid options in grey
+                    ctx.fillStyle = 'rgba(150, 150, 150, 0.4)'; // Grey
+                    ctx.fillRect(cell.x + 2, cell.y + 2, cell.w - 4, cell.h - 4);
+                }
+            }
+        });
+    });
+
+    // Then, draw grading results on top (correct/incorrect/empty)
     res.details.forEach((d, globalIdx) => {
         const blockIdx = Math.floor(globalIdx / qPerBlock);
         if (blockIdx >= numBlocks) return;
@@ -801,7 +843,7 @@ function drawGradingResultOverlay() {
             return;
         }
 
-        // Determine columns to draw
+        // Determine columns to draw (only valid answers)
         let indicesToDraw = [];
         if (typeof d.student === 'number') {
             indicesToDraw.push(d.student === 0 ? 9 : d.student - 1);
