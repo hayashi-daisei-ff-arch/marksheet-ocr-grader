@@ -782,6 +782,9 @@ async function startGradingFlow() {
 }
 
 async function visualizeCurrentPage() {
+    // Stabilization wait
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     const imageData = APP_STATE.pdfHandler.getImageData();
     if (!imageData) return;
 
@@ -1215,6 +1218,9 @@ async function reanalyzeCurrentPage() {
     document.body.style.cursor = 'wait';
 
     try {
+        // Stabilization wait to ensure canvas is fully rendered
+        await new Promise(resolve => setTimeout(resolve, 100));
+
         const imageData = APP_STATE.pdfHandler.getImageData(); // Get current cached image
         if (!imageData) throw new Error("No image data");
 
