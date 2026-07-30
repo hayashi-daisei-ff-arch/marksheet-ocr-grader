@@ -148,29 +148,43 @@ class OCREngine {
      * @param {Array} matrix Results from detectMarks
      * @returns {String} Student ID
      */
-    readVerticalID(matrix) {
-        // Matrix is [Rows][Cols]
-        // But for vertical ID, each column represents a digit, and the row represents the value 0-9
-        // Wait, usually ID is written horizontally? 
-        // User spec: "1. 0~9のマーク（縦方向）で，それが7桁です"
-        // This implies 7 COLUMNS, and in each column, rows 0-9 exist vertically.
-        // So we scan each COLUMN to find the marked ROW.
-
+    readVerticalID(matrix, options = {}) {
+        // Matrix is [Rows][Cols]. For ID, each column is one digit and rows are 0-9.
         if (!matrix || matrix.length === 0) return "";
 
+        const opts = typeof options === 'number' ? { minRatio: options } : options;
+        const minRatio = typeof opts.minRatio === 'number' ? opts.minRatio : null;
+        const minGap = typeof opts.minGap === 'number' ? opts.minGap : 0;
         const numCols = matrix[0].length;
         const numRows = matrix.length;
         let id = "";
 
         for (let c = 0; c < numCols; c++) {
             let foundDigit = "?";
-            // Find which row is marked in this column
-            for (let r = 0; r < numRows; r++) {
-                if (matrix[r][c].isMarked) {
-                    foundDigit = r.toString(); // Assuming row 0 is '0', row 1 is '1'...
-                    break;
+
+            if (minRatio !== null) {
+                const ranked = [];
+                for (let r = 0; r < numRows; r++) {
+                    ranked.push({ digit: r, ratio: matrix[r][c].ratio });
+                }
+                ranked.sort((a, b) => b.ratio - a.ratio);
+
+                const best = ranked[0];
+                const second = ranked[1];
+                const gap = second ? best.ratio - second.ratio : best.ratio;
+
+                if (best.ratio >= minRatio && gap >= minGap) {
+                    foundDigit = best.digit.toString();
+                }
+            } else {
+                for (let r = 0; r < numRows; r++) {
+                    if (matrix[r][c].isMarked) {
+                        foundDigit = r.toString();
+                        break;
+                    }
                 }
             }
+
             id += foundDigit;
         }
         return id;
@@ -194,8 +208,8 @@ class OCREngine {
                     // Map column index to actual value (1-9,0 order)
                     const value = colIdx === 9 ? 0 : colIdx + 1;
 
-                    // Filter: ignore values beyond maxOptions
-                    if (value <= maxOptions || value === 0) {
+                    // Filter: ignore values beyond maxOptions. "0" is valid only in 10-option blocks.
+                    if (maxOptions >= 10 || (value !== 0 && value <= maxOptions)) {
                         markedIndices.push(value);
                     }
                 }
