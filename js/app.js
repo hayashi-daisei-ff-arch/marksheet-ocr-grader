@@ -2,6 +2,22 @@
  * Main Application Logic
  */
 
+const DEFAULT_STUDENT_ID_REGION = { x: 100, y: 229, w: 177, h: 272 };
+const DEFAULT_ANSWER_BLOCKS = [
+    { x: 348.5, y: 174, w: 184, h: 677 },
+    { x: 569.5, y: 176, w: 182, h: 675 },
+    { x: 790.5, y: 177, w: 182, h: 674 },
+    { x: 1011.5, y: 177, w: 180, h: 677 }
+];
+
+function cloneRect(rect) {
+    return { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+}
+
+function cloneAnswerBlocks() {
+    return DEFAULT_ANSWER_BLOCKS.map(cloneRect);
+}
+
 const APP_STATE = {
     pdfHandler: new PDFHandler(),
     ocrEngine: new OCREngine(),
@@ -11,18 +27,15 @@ const APP_STATE = {
     config: {
         threshold: 205,
         sensitivity: 0.2,
+        studentIdSensitivity: 0.15,
+        studentIdMinGap: 0.03,
         contrast: 0,
-        studentIdRegion: { x: 100, y: 229, w: 177, h: 272 },
+        studentIdRegion: cloneRect(DEFAULT_STUDENT_ID_REGION),
         studentIdGrid: { rows: 10, cols: 7 },
 
         // 4 separate answer blocks
         questionsPerBlock: 25,
-        answerBlocks: [
-            { x: 348.5, y: 174, w: 184, h: 677 }, // Block 1
-            { x: 569.5, y: 176, w: 182, h: 675 }, // Block 2
-            { x: 790.5, y: 177, w: 182, h: 674 }, // Block 3
-            { x: 1011.5, y: 177, w: 180, h: 677 }  // Block 4
-        ]
+        answerBlocks: cloneAnswerBlocks()
     },
 
     // Runtime
@@ -30,6 +43,7 @@ const APP_STATE = {
     selectionStart: null,
     currentPage: 1,
     totalPages: 0,
+    sourceFile: null,
     answerKey: []
 };
 
@@ -44,6 +58,8 @@ function initUI() {
     document.getElementById('thresholdValue').textContent = APP_STATE.config.threshold;
     document.getElementById('sensitivitySlider').value = APP_STATE.config.sensitivity;
     document.getElementById('sensitivityValue').textContent = Math.round(APP_STATE.config.sensitivity * 100) + '%';
+    document.getElementById('studentIdSensitivitySlider').value = APP_STATE.config.studentIdSensitivity;
+    document.getElementById('studentIdSensitivityValue').textContent = Math.round(APP_STATE.config.studentIdSensitivity * 100) + '%';
     document.getElementById('contrastSlider').value = APP_STATE.config.contrast;
     document.getElementById('contrastValue').textContent = APP_STATE.config.contrast;
 
@@ -72,6 +88,16 @@ function initUI() {
     sensitivitySlider.addEventListener('input', (e) => {
         sensitivityValue.textContent = Math.round(e.target.value * 100) + '%';
         APP_STATE.config.sensitivity = parseFloat(e.target.value);
+        if (document.getElementById('resultsPreview').style.display !== 'none') {
+            requestRender();
+        }
+    });
+
+    const studentIdSensitivitySlider = document.getElementById('studentIdSensitivitySlider');
+    const studentIdSensitivityValue = document.getElementById('studentIdSensitivityValue');
+    studentIdSensitivitySlider.addEventListener('input', (e) => {
+        studentIdSensitivityValue.textContent = Math.round(e.target.value * 100) + '%';
+        APP_STATE.config.studentIdSensitivity = parseFloat(e.target.value);
         if (document.getElementById('resultsPreview').style.display !== 'none') {
             requestRender();
         }
@@ -171,10 +197,22 @@ async function handleFileDrop(e) {
 }
 
 async function handleFile(file) {
+    if (!file) return;
+
     if (file.type !== 'application/pdf') {
         alert('PDFファイルを選択してください');
         return;
     }
+
+    APP_STATE.sourceFile = file;
+    APP_STATE.answerKey = [];
+    APP_STATE.grader.reset();
+    document.getElementById('startGradingBtn').style.display = 'none';
+    document.getElementById('exportExcelBtn').style.display = 'none';
+    document.getElementById('reanalyzePageBtn').style.display = 'none';
+    document.getElementById('exportPdfBtn').style.display = 'none';
+    document.getElementById('studentListBtn').disabled = true;
+    document.getElementById('resultsPreview').style.display = 'none';
 
     document.getElementById('fileName').textContent = file.name;
     document.getElementById('fileInfo').style.display = 'flex';
@@ -229,6 +267,41 @@ function updateNav() {
     document.getElementById('nextPage').disabled = APP_STATE.currentPage >= APP_STATE.totalPages;
 }
 
+function getStudentIdSensitivity() {
+    return APP_STATE.config.studentIdSensitivity ?? APP_STATE.config.sensitivity;
+}
+
+function getStudentIdReadOptions() {
+    return {
+        minRatio: getStudentIdSensitivity(),
+        minGap: APP_STATE.config.studentIdMinGap || 0
+    };
+}
+
+function detectStudentIdMarks(binImage) {
+    return APP_STATE.ocrEngine.detectMarks(
+        binImage,
+        APP_STATE.config.studentIdRegion,
+        APP_STATE.config.studentIdGrid,
+        getStudentIdSensitivity()
+    );
+}
+
+function readStudentId(idRes) {
+    return APP_STATE.ocrEngine.readVerticalID(idRes.matrix, getStudentIdReadOptions());
+}
+
+function getProcessedCanvasImageData(updateCanvas = false) {
+    const imageData = APP_STATE.pdfHandler.getImageData();
+    if (imageData && APP_STATE.config.contrast !== 0) {
+        APP_STATE.ocrEngine.applyContrast(imageData, APP_STATE.config.contrast);
+        if (updateCanvas) {
+            APP_STATE.pdfHandler.ctx.putImageData(imageData, 0, 0);
+        }
+    }
+    return imageData;
+}
+
 // Canvas & Rendering
 async function requestRender() {
     if (!APP_STATE.totalPages) return;
@@ -237,12 +310,7 @@ async function requestRender() {
     const viewport = await APP_STATE.pdfHandler.renderPage(APP_STATE.currentPage);
 
     // Apply Contrast if needed
-    const imageData = APP_STATE.pdfHandler.getImageData();
-    if (imageData && APP_STATE.config.contrast !== 0) {
-        APP_STATE.ocrEngine.applyContrast(imageData, APP_STATE.config.contrast);
-        // Reflect contrast change to canvas immediately
-        APP_STATE.pdfHandler.ctx.putImageData(imageData, 0, 0);
-    }
+    const imageData = getProcessedCanvasImageData(true);
 
     // Binarize preview if checked
     const showBin = document.getElementById('showBinarized').checked;
@@ -379,18 +447,18 @@ function getBlockOptions(blockIndex) {
 }
 
 function resetStudentIdArea() {
-    APP_STATE.config.studentIdRegion = { x: 100, y: 229, w: 177, h: 272 };
+    APP_STATE.config.studentIdRegion = cloneRect(DEFAULT_STUDENT_ID_REGION);
     drawOverlay();
-    alert('学籍番号エリアをリセットしました。');
+    alert('学籍番号エリアを初期位置にリセットしました。');
 }
 
 function resetAllBlocks() {
-    APP_STATE.config.answerBlocks = [{}, {}, {}, {}];
+    APP_STATE.config.answerBlocks = cloneAnswerBlocks();
     for (let i = 1; i <= 4; i++) {
-        updateBlockStatus(i, false);
+        updateBlockStatus(i, true);
     }
     drawOverlay();
-    alert('全ブロックをリセットしました。');
+    alert('全ブロックを初期位置にリセットしました。');
 }
 
 function updateBlockVisibility() {
@@ -417,26 +485,6 @@ function updateBlockStatus(blockNum, isSet) {
             statusEl.classList.remove('set');
         }
     }
-}
-
-function resetStudentIdArea() {
-    APP_STATE.config.studentIdRegion = { x: 50, y: 100, w: 200, h: 500 };
-    drawOverlay();
-    alert('学籍番号エリアをリセットしました。「エリアを指定」ボタンで再設定してください。');
-}
-
-function resetAllBlocks() {
-    APP_STATE.config.answerBlocks = [
-        { x: 300, y: 100, w: 200, h: 500 },
-        { x: 550, y: 100, w: 200, h: 500 },
-        { x: 800, y: 100, w: 200, h: 500 },
-        { x: 1050, y: 100, w: 200, h: 500 }
-    ];
-    for (let i = 1; i <= 4; i++) {
-        updateBlockStatus(i, false);
-    }
-    drawOverlay();
-    alert('全ブロックをリセットしました。各ブロックを再設定してください。');
 }
 
 function drawOverlay() {
@@ -528,8 +576,8 @@ async function analyzeFirstPage() {
     const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
 
     // 1. Detect ID
-    const idRes = APP_STATE.ocrEngine.detectMarks(binImage, APP_STATE.config.studentIdRegion, APP_STATE.config.studentIdGrid, APP_STATE.config.sensitivity);
-    const studentId = APP_STATE.ocrEngine.readVerticalID(idRes.matrix);
+    const idRes = detectStudentIdMarks(binImage);
+    const studentId = readStudentId(idRes);
 
     // 2. Detect Answers from active blocks only
     const numBlocks = parseInt(document.getElementById('numBlocks').value) || 4;
@@ -630,7 +678,7 @@ function drawDetectionResultsBlocks(idRes, allDebugData) {
                 const optionValue = colIdx === 9 ? 0 : colIdx + 1;
 
                 // Check if invalid
-                const isInvalid = optionValue > maxOptions && optionValue !== 0;
+                const isInvalid = maxOptions < 10 && (optionValue === 0 || optionValue > maxOptions);
 
                 if (isInvalid) {
                     ctx.fillStyle = 'rgba(150, 150, 150, 0.4)'; // Grey
@@ -662,7 +710,7 @@ function drawDetectionResultsBlocks(idRes, allDebugData) {
                 const optionValue = colIdx === 9 ? 0 : colIdx + 1;
 
                 // Only draw colored overlay for valid options
-                const isValid = optionValue <= maxOptions || optionValue === 0;
+                const isValid = maxOptions >= 10 || (optionValue !== 0 && optionValue <= maxOptions);
 
                 if (isValid) {
                     ctx.fillStyle = colors[blockIdx];
@@ -732,12 +780,12 @@ async function startGradingFlow() {
         // Render to canvas
         await APP_STATE.pdfHandler.renderPage(p);
 
-        const imageData = APP_STATE.pdfHandler.getImageData();
+        const imageData = getProcessedCanvasImageData(true);
         const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
 
         // ID
-        const idRes = APP_STATE.ocrEngine.detectMarks(binImage, APP_STATE.config.studentIdRegion, APP_STATE.config.studentIdGrid, APP_STATE.config.sensitivity);
-        const studentId = APP_STATE.ocrEngine.readVerticalID(idRes.matrix);
+        const idRes = detectStudentIdMarks(binImage);
+        const studentId = readStudentId(idRes);
 
         // Answers - process active blocks only
         const numBlocks = parseInt(document.getElementById('numBlocks').value) || 4;
@@ -804,7 +852,7 @@ async function visualizeCurrentPage() {
     // visualizeCurrentPage is often called after requestRender.
 
     const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
-    const idRes = APP_STATE.ocrEngine.detectMarks(binImage, APP_STATE.config.studentIdRegion, APP_STATE.config.studentIdGrid, APP_STATE.config.sensitivity);
+    const idRes = detectStudentIdMarks(binImage);
 
     // Clear & ID
     drawDetectionResultsBlocks(idRes, []);
@@ -853,7 +901,7 @@ function drawGradingResultOverlay(allBlockDetections = []) {
                 const optionValue = colIdx === 9 ? 0 : colIdx + 1;
 
                 // Check if this option is beyond maxOptions
-                const isInvalid = optionValue > maxOptions && optionValue !== 0;
+                const isInvalid = maxOptions < 10 && (optionValue === 0 || optionValue > maxOptions);
 
                 if (isInvalid) {
                     // Draw invalid options in grey
@@ -1036,7 +1084,7 @@ function editAnswer(page, qIdx, currentVal) {
     const imageData = APP_STATE.pdfHandler.getImageData();
     if (imageData) {
         const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
-        const idRes = APP_STATE.ocrEngine.detectMarks(binImage, APP_STATE.config.studentIdRegion, APP_STATE.config.studentIdGrid, APP_STATE.config.sensitivity);
+        const idRes = detectStudentIdMarks(binImage);
         drawDetectionResultsBlocks(idRes, []);
     }
 
@@ -1173,64 +1221,52 @@ function toggleStudentList() {
     modal.style.display = 'block';
 }
 
+function countAnswerMarks(answer) {
+    if (answer === null || answer === undefined || answer === '') return 0;
+    if (typeof answer === 'string' && answer.includes(',')) {
+        return answer.split(',').filter(v => v.trim() !== '').length;
+    }
+    return 1;
+}
+
+function hasMultipleAnswer(answer) {
+    return countAnswerMarks(answer) > 1;
+}
+
+function createFlagCell(hasIssue) {
+    const td = document.createElement('td');
+    const span = document.createElement('span');
+    span.textContent = '●';
+    span.style.color = hasIssue ? 'red' : 'green';
+    if (hasIssue) span.style.fontWeight = 'bold';
+    td.appendChild(span);
+    return td;
+}
+
 function renderStudentList() {
     const tbody = document.querySelector('#studentListTable tbody');
     tbody.innerHTML = '';
 
     if (!APP_STATE.grader.results.length) return;
 
-    // Get total expected marks from correct answer key
-    const expectedMarkCount = APP_STATE.grader.correctAnswers.filter(a => a !== null).length;
+    const expectedMarkCount = APP_STATE.grader.correctAnswers.reduce((sum, answer) => sum + countAnswerMarks(answer), 0);
 
     APP_STATE.grader.results.forEach(res => {
         const tr = document.createElement('tr');
-
         const answers = res.details.map(d => d.student);
-        const hasMulti = answers.some(a => typeof a === 'string' && a.includes(','));
+        const hasMulti = answers.some(hasMultipleAnswer);
+        const totalMarks = answers.reduce((sum, answer) => sum + countAnswerMarks(answer), 0);
+        const hasUnanswered = res.details.some(d => d.correct !== null && d.correct !== undefined && d.student === null);
+        const hasDiscrepancy = totalMarks !== expectedMarkCount;
 
-        // 1. Total Mark Count (including multiple marks)
-        let totalMarks = 0;
-        answers.forEach(a => {
-            if (a === null) return;
-            if (typeof a === 'string' && a.includes(',')) {
-                totalMarks += a.split(',').length;
-            } else {
-                totalMarks += 1;
-            }
+        [res.page, res.studentId, totalMarks].forEach(value => {
+            const td = document.createElement('td');
+            td.textContent = value;
+            tr.appendChild(td);
         });
-
-        // 2. Flags Logic
-        // "未回答（検出）": Check if answered count matches expected count (e.g. 30/30)
-        const answeredCount = answers.filter(a => a !== null).length;
-        const hasUnanswered = answeredCount !== expectedMarkCount;
-
-        // Discrepancy: Same as Unanswered effectively, or strict check
-        // We'll treat them similarly based on user request
-        const hasDiscrepancy = hasUnanswered;
-
-        // Color-coded flags: red = problem, green = OK
-        const multiFlag = hasMulti
-            ? '<span style="color: red; font-weight: bold;">●</span>'
-            : '<span style="color: green;">●</span>';
-
-        // Unanswered: Red if count mismatch
-        const emptyFlag = hasUnanswered
-            ? '<span style="color: red; font-weight: bold;">●</span>'
-            : '<span style="color: green;">●</span>';
-
-        // Discrepancy: Red if count mismatch
-        const discrepancyFlag = hasDiscrepancy
-            ? '<span style="color: red; font-weight: bold;">●</span>'
-            : '<span style="color: green;">●</span>';
-
-        tr.innerHTML = `
-            <td>${res.page}</td>
-            <td>${res.studentId}</td>
-            <td>${totalMarks}</td>
-            <td>${multiFlag}</td>
-            <td>${emptyFlag}</td>
-            <td>${discrepancyFlag}</td>
-        `;
+        tr.appendChild(createFlagCell(hasMulti));
+        tr.appendChild(createFlagCell(hasUnanswered));
+        tr.appendChild(createFlagCell(hasDiscrepancy));
 
         tr.onclick = () => {
             APP_STATE.currentPage = res.page;
@@ -1258,17 +1294,12 @@ async function reanalyzeCurrentPage() {
         const imageData = APP_STATE.pdfHandler.getImageData(); // Get current cached image
         if (!imageData) throw new Error("No image data");
 
-        // Apply contrast: Removed because imageData comes from canvas which already has contrast applied by requestRender
-        // if (APP_STATE.config.contrast !== 0) {
-        //    APP_STATE.ocrEngine.applyContrast(imageData, APP_STATE.config.contrast);
-        // }
-
         // Binarize
         const binImage = APP_STATE.ocrEngine.binarize(imageData, APP_STATE.config.threshold);
 
         // Detect ID
-        const idRes = APP_STATE.ocrEngine.detectMarks(binImage, APP_STATE.config.studentIdRegion, APP_STATE.config.studentIdGrid, APP_STATE.config.sensitivity);
-        const studentId = APP_STATE.ocrEngine.readVerticalID(idRes.matrix);
+        const idRes = detectStudentIdMarks(binImage);
+        const studentId = readStudentId(idRes);
 
         // Detect Answers
         const answers = [];
@@ -1319,10 +1350,21 @@ async function exportPdf() {
     }
 
     try {
-        const fileInput = document.getElementById('fileInput');
-        if (!fileInput.files.length) return;
+        if (typeof PDFLib === 'undefined') {
+            throw new Error('PDF出力ライブラリが読み込まれていません。ネットワーク接続を確認してください。');
+        }
 
-        const fileBuffer = await fileInput.files[0].arrayBuffer();
+        if (!APP_STATE.sourceFile) {
+            alert('元PDFファイルが見つかりません。PDFを読み込み直してください。');
+            return;
+        }
+
+        const btn = document.getElementById('exportPdfBtn');
+        btn.disabled = true;
+        document.getElementById('loader').style.display = 'block';
+        document.body.style.cursor = 'wait';
+
+        const fileBuffer = await APP_STATE.sourceFile.arrayBuffer();
         const pdfDoc = await PDFLib.PDFDocument.load(fileBuffer);
         const pages = pdfDoc.getPages();
 
@@ -1406,13 +1448,22 @@ async function exportPdf() {
         const pdfBytes = await pdfDoc.save();
         const blob = new Blob([pdfBytes], { type: 'application/pdf' });
         const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(blob);
+        link.href = url;
         link.download = 'graded_with_overlay.pdf';
+        document.body.appendChild(link);
         link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
 
     } catch (e) {
         console.error(e);
         alert('PDF保存に失敗しました: ' + e.message);
+    } finally {
+        const btn = document.getElementById('exportPdfBtn');
+        if (btn) btn.disabled = false;
+        document.getElementById('loader').style.display = 'none';
+        document.body.style.cursor = 'default';
     }
 }
 
