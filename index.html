@@ -79,6 +79,14 @@
                     </div>
 
                     <div class="setting-group">
+                        <label>学籍番号判定感度</label>
+                        <div class="range-control">
+                            <input type="range" id="studentIdSensitivitySlider" min="0.05" max="0.5" step="0.01" value="0.15">
+                            <span id="studentIdSensitivityValue">15%</span>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
                         <label>コントラスト</label>
                         <div class="range-control">
                             <input type="range" id="contrastSlider" min="-100" max="100" value="0">
